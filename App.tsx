@@ -5,7 +5,6 @@ import { ICONS } from './constants';
 import { FlashcardItem } from './components/FlashcardItem';
 import { StudyCalendar } from './components/StudyCalendar';
 import { generateFlashcards, generateQuizQuestions } from './services/geminiService';
-import { initGoogleAuth, signIn, saveToDrive, loadFromDrive, getUserInfo } from './services/googleDriveService';
 
 const TODO_QUOTES = [
   "Bau Alice! Ho fiutato un 30 lode in Anatomia oggi! 🐾",
@@ -60,10 +59,6 @@ const App: React.FC = () => {
   const [lastSessionResult, setLastSessionResult] = useState<TestResult | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
 
-  const [googleConnected, setGoogleConnected] = useState(false);
-  const [syncLoading, setSyncLoading] = useState(false);
-  const [user, setUser] = useState<any>(null);
-
   const STORAGE_KEYS = {
     CARDS: 'abivet_alice_cards_v22',
     QUIZ: 'abivet_alice_quiz_v22',
@@ -82,12 +77,6 @@ const App: React.FC = () => {
     if (load(STORAGE_KEYS.REMINDERS)) setReminders(JSON.parse(load(STORAGE_KEYS.REMINDERS)!));
     if (load(STORAGE_KEYS.THEME)) setTheme(load(STORAGE_KEYS.THEME) as ThemeColor || 'emerald');
     refreshQuote();
-
-    initGoogleAuth();
-    (window as any).onAuthSuccess = () => {
-      setGoogleConnected(true);
-      setUser(getUserInfo());
-    };
   }, []);
 
   useEffect(() => localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards)), [cards]);
@@ -112,6 +101,11 @@ const App: React.FC = () => {
 
   const isFinalUnlocked = isExam1Unlocked && isExam2Unlocked && exam1Passed && exam2Passed;
 
+  const totalAccuracy = useMemo(() => {
+    if (history.length === 0) return 0;
+    return Math.round(history.reduce((a, b) => a + b.accuracy, 0) / history.length);
+  }, [history]);
+
   const refreshQuote = () => setCurrentQuote(TODO_QUOTES[Math.floor(Math.random() * TODO_QUOTES.length)]);
 
   const themeClasses = useMemo(() => {
@@ -124,34 +118,6 @@ const App: React.FC = () => {
     };
     return themes[theme];
   }, [theme]);
-
-  const handleCloudPush = async () => {
-    setSyncLoading(true);
-    const data = { cards, quizDB, history, badges, reminders, theme };
-    const success = await saveToDrive(data);
-    setSyncLoading(false);
-    if (success) alert("Progressi salvati sul tuo account Google! ☁️🐾");
-    else alert("Errore nel salvataggio Cloud. Riprova Bau!");
-  };
-
-  const handleCloudPull = async () => {
-    setSyncLoading(true);
-    const cloudData = await loadFromDrive();
-    setSyncLoading(false);
-    if (cloudData) {
-      if (confirm("Alice, i dati del Cloud sostituiranno quelli sul telefono. Procedo? 🐕")) {
-        setCards(cloudData.cards || []);
-        setQuizDB(cloudData.quizDB || []);
-        setHistory(cloudData.history || []);
-        setBadges(cloudData.badges || []);
-        setReminders(cloudData.reminders || []);
-        setTheme(cloudData.theme || 'emerald');
-        alert("Progressi ripristinati correttamente! 🦴✨");
-      }
-    } else {
-      alert("Nessun backup trovato nel tuo Cloud.");
-    }
-  };
 
   const generateLaboratoryItems = async (subject: string) => {
     if (isGenerating) return;
@@ -169,6 +135,7 @@ const App: React.FC = () => {
 
     try {
       const year = subj1.includes(subject) ? Year.First : Year.Second;
+      // Generazione 20 Flashcard e 20 Quiz richiesti
       const [newCards, newQuiz] = await Promise.all([
         generateFlashcards(subject, year, existingC, 20),
         generateQuizQuestions(subject, year, existingQ, 20)
@@ -188,42 +155,25 @@ const App: React.FC = () => {
   const checkBadgeUnlock = (subject: string, accuracy: number) => {
     if (accuracy >= 80 && !badges.find(b => b.subject === subject)) {
       setBadges(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), subject, icon: SUBJECT_ICONS[subject] || "🏆", earnedDate: Date.now() }]);
+      alert(`BAU! Alice, hai guadagnato il Badge in ${subject}! 🦴🏆`);
     }
   };
 
   const finishSession = (type: any, final: number, details?: any[], totalCount?: number) => {
     const count = totalCount || details?.length || 10;
-    const accuracy = Math.round((final / count) * 100);
-    const res: TestResult = { 
-      id: Math.random().toString(36).substr(2,9), 
-      date: Date.now(), 
-      subject: activeSubject, 
-      type, 
-      totalCards: count, 
-      correctAnswers: final, 
-      accuracy, 
-      details 
-    };
-    
-    // Aggiornamento sincronizzato degli stati
-    setLastSessionResult(res);
+    const accuracy = (final / count) * 100;
+    const res: TestResult = { id: Math.random().toString(36).substr(2,9), date: Date.now(), subject: activeSubject, type, totalCards: count, correctAnswers: final, accuracy, details };
     setHistory(prev => [res, ...prev]); 
-    
-    if (activeSubject !== 'Tutto' && !activeSubject.startsWith("Esame")) {
-      checkBadgeUnlock(activeSubject, accuracy);
-    }
-    
+    setLastSessionResult(res); 
+    if (activeSubject !== 'Tutto' && !activeSubject.startsWith("Esame")) checkBadgeUnlock(activeSubject, accuracy);
     setView('review');
   };
 
   const handleFlashcardGrade = (c: boolean) => {
     const newCorrect = c ? correctCount + 1 : correctCount;
     setCorrectCount(newCorrect);
-    if (currentIdx < currentSessionCards.length - 1) { 
-      setCurrentIdx(p => p + 1); 
-    } else {
-      finishSession('Flashcard', newCorrect, undefined, currentSessionCards.length);
-    }
+    if (currentIdx < currentSessionCards.length - 1) { setCurrentIdx(p => p + 1); }
+    else finishSession('Flashcard', newCorrect, undefined, currentSessionCards.length);
   };
 
   const confirmQuiz = () => {
@@ -245,6 +195,7 @@ const App: React.FC = () => {
     else { pool = s === 'Tutto' ? quizDB : quizDB.filter(q => q.subject === s); }
 
     if (pool.length === 0) return alert(`Bau! Non hai ancora contenuti per questo esame.`);
+    // Ridotto il numero di domande a 10 per sessione
     setCurrentSessionQuiz(pool.sort(() => Math.random() - 0.5).slice(0, 10));
     setCurrentIdx(0); setUserSelections({}); setActiveSubject(label); setView('quiz_session');
   };
@@ -253,7 +204,10 @@ const App: React.FC = () => {
     const pool = s === 'Tutto' ? cards : cards.filter(c => c.subject === s);
     if (pool.length === 0) return alert(`Bau! Non hai ancora cards per ${s}. Generane alcune nel laboratorio!`);
     setCurrentSessionCards(pool.sort(() => Math.random() - 0.5).slice(0, 10));
-    setCurrentIdx(0); setCorrectCount(0); setActiveSubject(s); setView('session');
+    setCurrentIdx(0); 
+    setCorrectCount(0);
+    setActiveSubject(s); 
+    setView('session');
   };
 
   return (
@@ -270,24 +224,22 @@ const App: React.FC = () => {
           <button onClick={() => setView('dashboard')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'dashboard' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><ICONS.Dashboard /> Dashboard</button>
           <button onClick={() => setView('study')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'study' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><ICONS.Study /> Libreria Moduli</button>
           <button onClick={() => setView('badges')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'badges' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> Bacheca Badge</button>
-          <button onClick={() => setView('calendar')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'calendar' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v12a2 2 0 002 2z" /></svg> Calendario</button>
+          <button onClick={() => setView('calendar')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'calendar' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> Calendario</button>
           <button onClick={() => setView('history')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'history' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><ICONS.History /> Registro</button>
-          <button onClick={() => setView('settings')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'settings' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> Impostazioni</button>
+          <button onClick={() => setView('settings')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'settings' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> Impostazioni</button>
         </nav>
+        <div className="p-6">
+           <div className="bg-gray-50 rounded-[2.5rem] p-8 border border-gray-100 flex flex-col items-center text-center">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Esito Globale</span>
+              <span className={`text-5xl font-black ${totalAccuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{totalAccuracy}%</span>
+           </div>
+        </div>
       </aside>
 
       <main className="flex-1 md:ml-80 p-4 md:p-12 overflow-y-auto max-h-screen custom-scrollbar pb-32">
         
         {view === 'dashboard' && (
           <div className="max-w-5xl mx-auto space-y-10 animate-fadeIn">
-            {googleConnected && (
-              <div className="flex justify-end gap-3 px-2">
-                <button onClick={handleCloudPush} disabled={syncLoading} className="bg-white px-6 py-3 rounded-2xl border border-gray-100 shadow-sm text-[10px] font-black uppercase tracking-widest text-emerald-600 flex items-center gap-2 hover:bg-emerald-50 transition-all disabled:opacity-50">
-                  {syncLoading ? "..." : "☁️ Salva Cloud"}
-                </button>
-              </div>
-            )}
-
             <div className="flex flex-col md:row gap-8 items-center bg-white p-8 md:p-12 rounded-[3.5rem] border border-gray-100 shadow-sm relative overflow-hidden group">
                <div onClick={refreshQuote} className={`w-28 h-28 md:w-36 md:h-36 ${themeClasses.bg} rounded-[3rem] flex items-center justify-center text-6xl shadow-2xl cursor-pointer hover:scale-105 active:rotate-12 transition-all`}>🐶</div>
                <div className="flex-1 space-y-4 text-center md:text-left">
@@ -296,6 +248,7 @@ const App: React.FC = () => {
                </div>
             </div>
 
+            {/* Missione Osso d'Oro - Restyling stile missione */}
             <section className="relative group">
                <div className="absolute -inset-1 bg-gradient-to-r from-amber-400 via-blue-500 to-emerald-600 rounded-[4.5rem] blur opacity-15 group-hover:opacity-30 transition duration-1000"></div>
                <div className="relative p-10 md:p-16 rounded-[4.5rem] bg-white border-2 border-gray-50 shadow-sm space-y-16">
@@ -312,6 +265,7 @@ const App: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
+                     {/* Step 1: Primo Anno */}
                      <div className={`relative p-10 rounded-[3.5rem] border-2 flex flex-col gap-6 transition-all ${isExam1Unlocked ? 'border-amber-200 bg-amber-50/50 shadow-lg scale-105' : 'border-gray-50 opacity-50'}`}>
                         <div className="flex justify-between items-start">
                            <span className="text-5xl">🥇</span>
@@ -325,6 +279,7 @@ const App: React.FC = () => {
                         {exam1Passed && <span className="text-[10px] text-emerald-600 font-black text-center uppercase tracking-widest bg-emerald-50 py-2 rounded-xl">SUPERATA ✅</span>}
                      </div>
 
+                     {/* Step 2: Secondo Anno */}
                      <div className={`relative p-10 rounded-[3.5rem] border-2 flex flex-col gap-6 transition-all ${isExam2Unlocked ? 'border-blue-200 bg-blue-50/50 shadow-lg scale-105' : 'border-gray-50 opacity-50'}`}>
                         <div className="flex justify-between items-start">
                            <span className="text-5xl">🥈</span>
@@ -338,6 +293,7 @@ const App: React.FC = () => {
                         {exam2Passed && <span className="text-[10px] text-emerald-600 font-black text-center uppercase tracking-widest bg-emerald-50 py-2 rounded-xl">SUPERATA ✅</span>}
                      </div>
 
+                     {/* Step 3: Finale */}
                      <div className={`relative p-10 rounded-[3.5rem] border-2 flex flex-col gap-6 transition-all ${isFinalUnlocked ? 'border-emerald-200 bg-emerald-50 shadow-2xl scale-110' : 'border-gray-50 opacity-30'}`}>
                         <div className="flex justify-between items-start">
                            <span className="text-6xl animate-bounce">🏆</span>
@@ -350,6 +306,7 @@ const App: React.FC = () => {
                </div>
             </section>
 
+            {/* Laboratorio Analisi Colorato */}
             <section className="bg-gradient-to-br from-[#1E293B] to-[#0F172A] p-10 md:p-14 rounded-[4rem] shadow-2xl relative overflow-hidden group">
                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-3xl rounded-full"></div>
                <div className="relative z-10 space-y-10">
@@ -378,6 +335,177 @@ const App: React.FC = () => {
                   )}
                </div>
             </section>
+          </div>
+        )}
+
+        {view === 'settings' && (
+          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn">
+            <header className="space-y-4">
+              <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter">Impostazioni Pro ⚙️</h2>
+              <p className="text-gray-400 font-bold">Personalizza la tua interfaccia di studio Alice.</p>
+            </header>
+            
+            <div className="bg-white p-12 rounded-[4rem] border border-gray-100 shadow-sm space-y-10">
+               <section className="space-y-8">
+                  <h3 className="text-xl font-black text-gray-800 italic">Tema dell'App</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+                    {(['emerald', 'blue', 'indigo', 'rose', 'amber'] as ThemeColor[]).map((c) => (
+                      <button 
+                        key={c} 
+                        onClick={() => setTheme(c)}
+                        className={`p-6 rounded-[2.5rem] border-4 transition-all flex flex-col items-center gap-4 ${theme === c ? 'border-emerald-200 bg-gray-50' : 'border-transparent bg-white shadow-sm hover:scale-105'}`}
+                      >
+                        <div className={`w-12 h-12 rounded-full ${
+                          c === 'emerald' ? 'bg-emerald-500' : 
+                          c === 'blue' ? 'bg-blue-500' : 
+                          c === 'indigo' ? 'bg-indigo-500' : 
+                          c === 'rose' ? 'bg-rose-500' : 'bg-amber-500'
+                        } shadow-lg`}></div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{c}</span>
+                      </button>
+                    ))}
+                  </div>
+               </section>
+
+               <section className="p-10 rounded-[3rem] bg-gray-50 space-y-4 border border-gray-100">
+                  <p className="text-sm font-bold text-gray-600 leading-relaxed italic">"Bau Alice! Qui puoi cambiare i colori della nostra clinica. Quale ti ispira di più oggi per studiare?" - Todo.ai</p>
+               </section>
+               
+               <button onClick={() => setView('dashboard')} className={`w-full py-6 ${themeClasses.bg} text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all`}>Torna alla Dashboard 🐾</button>
+            </div>
+          </div>
+        )}
+
+        {view === 'badges' && (
+          <div className="max-w-6xl mx-auto space-y-12 animate-fadeIn pb-16">
+            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter leading-none">Bacheca Specialista</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+               {allSubj.map(s => {
+                 const b = badges.find(x => x.subject === s);
+                 return (
+                   <div key={s} className={`p-10 rounded-[3.5rem] border-2 transition-all flex flex-col items-center text-center gap-6 ${b ? 'bg-white border-emerald-100 shadow-xl' : 'bg-gray-50 border-gray-100 opacity-40 grayscale'}`}>
+                      <span className="text-6xl">{SUBJECT_ICONS[s]}</span>
+                      <p className="text-sm font-black text-gray-900 leading-tight h-10 flex items-center">{s}</p>
+                      {b ? <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">CONQUISTATO 🦴</span> : <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">OBIETTIVO 80%</span>}
+                   </div>
+                 );
+               })}
+            </div>
+          </div>
+        )}
+
+        {view === 'quiz_session' && currentSessionQuiz[currentIdx] && (
+          <div className="max-w-4xl mx-auto py-12 space-y-12 animate-fadeIn pb-40 px-2">
+            <div className="flex justify-between items-center px-10">
+              <h2 className="text-2xl font-black text-gray-900 italic leading-none">{activeSubject}</h2>
+              <button onClick={() => setView('dashboard')} className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Abbandona</button>
+            </div>
+            
+            <div className="bg-white p-12 md:p-16 rounded-[4.5rem] border border-gray-100 shadow-xl space-y-12">
+               <p className="text-3xl md:text-4xl font-black text-gray-900 leading-tight italic tracking-tighter">{currentSessionQuiz[currentIdx].question}</p>
+               <div className="grid grid-cols-1 gap-4">
+                  {currentSessionQuiz[currentIdx].options.map((opt, i) => (
+                    <button key={i} onClick={() => setUserSelections(v => ({...v, [currentIdx]: i}))} className={`p-7 md:p-9 rounded-[2.5rem] border-2 text-left transition-all flex items-center gap-6 ${userSelections[currentIdx] === i ? 'border-emerald-500 bg-emerald-50 shadow-md' : 'border-gray-50 bg-gray-50/20'}`}>
+                       <span className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl ${userSelections[currentIdx] === i ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-gray-400'}`}>{String.fromCharCode(65+i)}</span>
+                       <span className={`text-base md:text-xl font-bold ${userSelections[currentIdx] === i ? 'text-emerald-900' : 'text-gray-700'}`}>{opt}</span>
+                    </button>
+                  ))}
+               </div>
+            </div>
+
+            <div className="flex justify-between items-center px-6">
+               <button disabled={currentIdx === 0} onClick={() => setCurrentIdx(p => p - 1)} className={`px-12 py-6 rounded-[2rem] font-black text-xs uppercase tracking-widest transition-all ${currentIdx === 0 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-black shadow-xl active:scale-95'}`}>← Indietro</button>
+               {currentIdx < currentSessionQuiz.length - 1 ? (
+                 <button onClick={() => setCurrentIdx(p => p + 1)} className="px-12 py-6 bg-emerald-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95">Successiva →</button>
+               ) : (
+                 <button onClick={confirmQuiz} className="px-14 py-6 bg-amber-500 text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl shadow-amber-200 animate-pulse">🦴 CONFERMA ESAME 🐾</button>
+               )}
+            </div>
+
+            <div className="px-12 flex flex-col gap-3">
+               <div className="flex justify-between text-[11px] font-black text-gray-400 uppercase tracking-[0.3em]">
+                  <span>Progresso Esame</span>
+                  <span>{currentIdx + 1} / {currentSessionQuiz.length}</span>
+               </div>
+               <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden p-0.5">
+                  <div className={`${themeClasses.bg} h-full transition-all duration-300 rounded-full`} style={{width: `${((currentIdx + 1)/currentSessionQuiz.length)*100}%`}}></div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'session' && currentSessionCards[currentIdx] && (
+          <div className="max-w-4xl mx-auto py-12 space-y-12 animate-fadeIn pb-40 px-2">
+            <div className="flex justify-between items-center px-10">
+              <h2 className="text-2xl font-black text-gray-900 italic leading-none">{activeSubject}</h2>
+              <button onClick={() => setView('dashboard')} className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Abbandona</button>
+            </div>
+            
+            <FlashcardItem 
+              card={currentSessionCards[currentIdx]} 
+              onGrade={handleFlashcardGrade}
+            />
+
+            <div className="px-12 flex flex-col gap-3">
+               <div className="flex justify-between text-[11px] font-black text-gray-400 uppercase tracking-[0.3em]">
+                  <span>Progresso Studio</span>
+                  <span>{currentIdx + 1} / {currentSessionCards.length}</span>
+               </div>
+               <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden p-0.5">
+                  <div className={`${themeClasses.bg} h-full transition-all duration-300 rounded-full`} style={{width: `${((currentIdx + 1)/currentSessionCards.length)*100}%`}}></div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'review' && lastSessionResult && (
+          <div className="max-w-4xl mx-auto space-y-14 animate-fadeIn py-12 px-2 pb-48">
+            <header className="text-center space-y-10">
+              <div className={`w-44 h-44 md:w-56 md:h-56 rounded-[5rem] mx-auto flex flex-col items-center justify-center font-black ${lastSessionResult.accuracy >= 60 ? themeClasses.bg + ' text-white shadow-3xl' : 'bg-rose-500 text-white shadow-3xl shadow-rose-200'}`}>
+                <span className="text-7xl md:text-8xl">{Math.round(lastSessionResult.accuracy)}%</span>
+                <span className="text-[11px] uppercase opacity-70 mt-3 tracking-widest font-black">Successo</span>
+              </div>
+              <h2 className="text-4xl md:text-5xl font-black text-gray-900 italic tracking-tighter">Referto per Alice 🐾</h2>
+              <div className="flex justify-center gap-5">
+                 <button onClick={() => setView('dashboard')} className="px-14 py-6 bg-gray-900 text-white rounded-[2.5rem] font-black text-xs uppercase shadow-xl">HOME</button>
+                 <button onClick={() => setView('study')} className={`px-14 py-6 ${themeClasses.bg} text-white rounded-[2.5rem] font-black text-xs uppercase shadow-xl`}>LIBRERIA</button>
+              </div>
+            </header>
+            
+            <div className="space-y-12">
+              {lastSessionResult.details?.map((item, idx) => {
+                const aiTitle = AI_FEEDBACK_TITLES[Math.floor(Math.random() * AI_FEEDBACK_TITLES.length)];
+                return (
+                  <div key={idx} className={`p-12 md:p-16 rounded-[4.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-emerald-100 shadow-xl' : 'border-rose-100 shadow-xl'} relative`}>
+                    <p className="text-2xl md:text-3xl font-black text-gray-900 mb-12 leading-tight italic tracking-tight">{item.q.question}</p>
+                    <div className="space-y-4 mb-14">
+                       {item.q.options.map((opt: string, i: number) => (
+                         <div key={i} className={`p-6 rounded-[1.5rem] text-sm md:text-base font-bold flex items-center gap-6 ${i === item.q.correctIndex ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : i === item.selected ? 'bg-rose-50 text-rose-800 border border-rose-100' : 'bg-gray-50 text-gray-400 opacity-60'}`}>
+                           <span className="w-10 h-10 rounded-2xl bg-white/50 flex items-center justify-center font-black text-lg shadow-sm">{String.fromCharCode(65+i)}</span>
+                           {opt}
+                         </div>
+                       ))}
+                    </div>
+                    <div className={`${item.selected === item.q.correctIndex ? 'bg-emerald-50/50' : 'bg-rose-50/50'} p-10 rounded-[3.5rem] border border-gray-100 shadow-inner italic text-sm md:text-base text-gray-700 leading-relaxed`}>
+                      <p className={`text-[10px] font-black uppercase tracking-[0.4em] mb-4 ${item.selected === item.q.correctIndex ? 'text-emerald-600' : 'text-rose-600'}`}>{aiTitle}</p>
+                      {item.q.explanation}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {view === 'calendar' && (
+          <div className="max-w-4xl mx-auto space-y-10 animate-fadeIn">
+            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter">Agenda Abivet</h2>
+            <StudyCalendar 
+              reminders={reminders} history={history} badges={badges}
+              onAddReminder={(r) => setReminders(prev => [...prev, { ...r, id: Math.random().toString() }])}
+              onDeleteReminder={(id) => setReminders(prev => prev.filter(r => r.id !== id))}
+              onToggleReminder={(id) => setReminders(prev => prev.map(r => r.id === id ? { ...r, completed: !r.completed } : r))}
+            />
           </div>
         )}
 
@@ -412,190 +540,39 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {view === 'session' && currentSessionCards[currentIdx] && (
-          <div className="max-w-4xl mx-auto py-12 space-y-10 animate-fadeIn">
-            <div className="flex justify-between items-center px-6">
-              <h2 className="text-2xl font-black text-gray-900 italic">{activeSubject}</h2>
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">CARTA {currentIdx + 1} DI {currentSessionCards.length}</span>
-            </div>
-            <FlashcardItem card={currentSessionCards[currentIdx]} onGrade={handleFlashcardGrade} />
-          </div>
-        )}
-
-        {view === 'quiz_session' && currentSessionQuiz[currentIdx] && (
-          <div className="max-w-4xl mx-auto py-12 space-y-12 animate-fadeIn pb-40 px-2">
-            <div className="flex justify-between items-center px-10">
-              <h2 className="text-2xl font-black text-gray-900 italic leading-none">{activeSubject}</h2>
-              <button onClick={() => setView('dashboard')} className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Abbandona</button>
-            </div>
-            
-            <div className="bg-white p-12 md:p-16 rounded-[4.5rem] border border-gray-100 shadow-xl space-y-12">
-               <p className="text-3xl md:text-4xl font-black text-gray-900 leading-tight italic tracking-tighter">{currentSessionQuiz[currentIdx].question}</p>
-               <div className="grid grid-cols-1 gap-4">
-                  {currentSessionQuiz[currentIdx].options.map((opt, i) => (
-                    <button key={i} onClick={() => setUserSelections(v => ({...v, [currentIdx]: i}))} className={`p-7 md:p-9 rounded-[2.5rem] border-2 text-left transition-all flex items-center gap-6 ${userSelections[currentIdx] === i ? 'border-emerald-500 bg-emerald-50 shadow-md' : 'border-gray-50 bg-gray-50/20'}`}>
-                       <span className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl ${userSelections[currentIdx] === i ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-gray-400'}`}>{String.fromCharCode(65+i)}</span>
-                       <span className={`text-base md:text-xl font-bold ${userSelections[currentIdx] === i ? 'text-emerald-900' : 'text-gray-700'}`}>{opt}</span>
-                    </button>
-                  ))}
+        {view === 'history' && (
+          <div className="max-w-5xl mx-auto space-y-10 animate-fadeIn">
+            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter">Registro Referti</h2>
+            <div className="bg-white rounded-[4rem] border border-gray-100 shadow-sm overflow-hidden">
+               <div className="overflow-x-auto">
+                 <table className="w-full text-left min-w-[600px]">
+                    <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                       <tr><th className="px-12 py-10">Data</th><th className="px-12 py-10">Soggetto</th><th className="px-12 py-10 text-right">Esito</th></tr>
+                    </thead>
+                    <tbody className="divide-y text-xs font-bold">
+                       {history.map(res => (
+                         <tr key={res.id} onClick={() => { setLastSessionResult(res); setView('review'); }} className="hover:bg-gray-50 cursor-pointer transition-colors group">
+                            <td className="px-12 py-8 text-gray-400">{new Date(res.date).toLocaleDateString()}</td>
+                            <td className="px-12 py-8 text-gray-900 group-hover:text-emerald-600 transition-colors text-sm font-black">{res.subject} ({res.type})</td>
+                            <td className={`px-12 py-8 text-right text-3xl font-black ${res.accuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{Math.round(res.accuracy)}%</td>
+                         </tr>
+                       ))}
+                    </tbody>
+                 </table>
                </div>
             </div>
-
-            <div className="flex justify-between items-center px-6">
-               <button disabled={currentIdx === 0} onClick={() => setCurrentIdx(p => p - 1)} className={`px-12 py-6 rounded-[2rem] font-black text-xs uppercase tracking-widest transition-all ${currentIdx === 0 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-black shadow-xl active:scale-95'}`}>← Indietro</button>
-               {currentIdx < currentSessionQuiz.length - 1 ? (
-                 <button onClick={() => setCurrentIdx(p => p + 1)} className="px-12 py-6 bg-emerald-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95">Successiva →</button>
-               ) : (
-                 <button onClick={confirmQuiz} className="px-14 py-6 bg-amber-500 text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl shadow-amber-200 animate-pulse">🦴 CONFERMA ESAME 🐾</button>
-               )}
-            </div>
           </div>
         )}
 
-        {view === 'review' && lastSessionResult && (
-          <div className="max-w-3xl mx-auto py-12 space-y-12 animate-fadeIn text-center">
-             <div className="relative inline-block group">
-                <div className={`absolute -inset-4 ${lastSessionResult.accuracy >= 60 ? 'bg-emerald-500' : 'bg-rose-500'} blur-2xl opacity-20 rounded-full`}></div>
-                <div className={`w-48 h-48 md:w-64 md:h-64 rounded-full border-8 border-white shadow-2xl flex items-center justify-center text-6xl md:text-8xl font-black italic ${lastSessionResult.accuracy >= 60 ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>
-                   {lastSessionResult.accuracy}%
-                </div>
-             </div>
-             
-             <div className="space-y-4">
-                <h2 className="text-4xl md:text-6xl font-black text-gray-900 tracking-tighter italic leading-none">{lastSessionResult.accuracy >= 60 ? "ECCELLENTE, ALICE! 🐾" : "RIPROVIAMO, ALICE! 🐕"}</h2>
-                <p className="text-gray-400 font-bold uppercase tracking-widest">{lastSessionResult.correctAnswers} RISPOSTE CORRETTE SU {lastSessionResult.totalCards}</p>
-             </div>
-
-             <div className="bg-white p-10 rounded-[3rem] border border-gray-100 shadow-sm text-left space-y-6">
-                <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest">{AI_FEEDBACK_TITLES[Math.floor(Math.random()*AI_FEEDBACK_TITLES.length)]}</h4>
-                <p className="text-lg md:text-xl font-bold italic text-gray-800 leading-relaxed">
-                   "{lastSessionResult.accuracy >= 80 ? "Hai un fiuto incredibile! Questa materia non ha più segreti per noi due!" : lastSessionResult.accuracy >= 60 ? "Niente male! Qualche altro osso da rosicchiare e saremo perfetti." : "Bau! Qui il caso è complesso. Meglio tornare sui libri e riprovare l'analisi."}"
-                </p>
-             </div>
-
-             <button onClick={() => setView('dashboard')} className="w-full py-7 bg-gray-900 text-white rounded-[2.5rem] font-black text-sm uppercase tracking-widest shadow-2xl active:scale-95 transition-all">Torna alla Dashboard 🦴</button>
-          </div>
-        )}
-
-        {view === 'history' && (
-          <div className="max-w-5xl mx-auto space-y-12 animate-fadeIn pb-16">
-            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter leading-none">Registro Clinico</h2>
-            <div className="space-y-4">
-               {history.length === 0 ? (
-                 <div className="bg-white p-16 rounded-[4rem] text-center border border-dashed border-gray-200">
-                    <p className="text-gray-300 font-black uppercase tracking-widest">Nessuna analisi salvata ancora.</p>
-                 </div>
-               ) : history.map(h => (
-                 <div key={h.id} className="bg-white p-8 rounded-[2.5rem] border border-gray-50 flex items-center justify-between shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center gap-6">
-                       <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${h.accuracy >= 60 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-500'}`}>{h.accuracy >= 60 ? '✓' : '✕'}</div>
-                       <div>
-                          <h4 className="text-lg font-black text-gray-800 leading-none mb-1">{h.subject}</h4>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{h.type} • {new Date(h.date).toLocaleDateString()}</p>
-                       </div>
-                    </div>
-                    <span className={`text-3xl font-black italic ${h.accuracy >= 60 ? 'text-emerald-600' : 'text-rose-500'}`}>{h.accuracy}%</span>
-                 </div>
-               ))}
-            </div>
-          </div>
-        )}
-
-        {view === 'calendar' && (
-          <div className="max-w-6xl mx-auto space-y-10 animate-fadeIn pb-16">
-            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter leading-none">Calendario Studi</h2>
-            <StudyCalendar 
-              reminders={reminders} 
-              history={history} 
-              badges={badges} 
-              onAddReminder={(r) => setReminders(p => [{...r, id: Math.random().toString(36).substr(2,9)}, ...p])} 
-              onDeleteReminder={(id) => setReminders(p => p.filter(x => x.id !== id))} 
-              onToggleReminder={(id) => setReminders(p => p.map(x => x.id === id ? {...x, completed: !x.completed} : x))} 
-            />
-          </div>
-        )}
-
-        {view === 'badges' && (
-          <div className="max-w-6xl mx-auto space-y-12 animate-fadeIn pb-16">
-            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter leading-none">Bacheca Specialista</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-               {allSubj.map(s => {
-                 const b = badges.find(x => x.subject === s);
-                 return (
-                   <div key={s} className={`p-10 rounded-[3.5rem] border-2 transition-all flex flex-col items-center text-center gap-6 ${b ? 'bg-white border-emerald-100 shadow-xl' : 'bg-gray-50 border-gray-100 opacity-40 grayscale'}`}>
-                      <span className="text-6xl">{SUBJECT_ICONS[s]}</span>
-                      <p className="text-sm font-black text-gray-900 leading-tight h-10 flex items-center">{s}</p>
-                      {b ? <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">CONQUISTATO 🦴</span> : <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">OBIETTIVO 80%</span>}
-                   </div>
-                 );
-               })}
-            </div>
-          </div>
-        )}
-
-        {view === 'settings' && (
-          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn">
-            <header className="space-y-4">
-              <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter">Impostazioni Pro ⚙️</h2>
-              <p className="text-gray-400 font-bold">Personalizza e proteggi i tuoi dati Abivet.</p>
-            </header>
-            
-            <div className="bg-white p-12 rounded-[4rem] border border-gray-100 shadow-sm space-y-12">
-               <section className="space-y-8 p-10 bg-emerald-50 rounded-[3rem] border border-emerald-100">
-                  <div className="flex items-center gap-6">
-                    <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center text-4xl shadow-sm">☁️</div>
-                    <div className="flex-1">
-                      <h3 className="text-xl font-black text-gray-800 italic">Cloud Sync Google</h3>
-                      <p className="text-[10px] text-gray-400 font-black uppercase tracking-widest">Sincronizzazione Account Alice</p>
-                    </div>
-                  </div>
-
-                  {!googleConnected ? (
-                    <button onClick={signIn} className="w-full py-6 bg-white border-2 border-emerald-200 text-emerald-600 rounded-[2.5rem] font-black text-xs uppercase tracking-widest hover:bg-emerald-50 transition-all shadow-sm">Connetti Account Google 🐾</button>
-                  ) : (
-                    <div className="space-y-6">
-                       <div className="p-6 bg-white/60 rounded-[2rem] flex items-center gap-4">
-                          {user?.picture ? <img src={user.picture} className="w-10 h-10 rounded-full" /> : <div className="w-10 h-10 bg-emerald-500 rounded-full" />}
-                          <div>
-                            <p className="text-sm font-black text-gray-800">{user?.name || "Alice"}</p>
-                            <p className="text-[9px] font-bold text-gray-400">{user?.email}</p>
-                          </div>
-                       </div>
-                       <div className="grid grid-cols-2 gap-4">
-                          <button onClick={handleCloudPush} disabled={syncLoading} className="py-5 bg-emerald-600 text-white rounded-[2rem] font-black text-[10px] uppercase shadow-xl hover:bg-emerald-700 transition-all">Salva nel Cloud</button>
-                          <button onClick={handleCloudPull} disabled={syncLoading} className="py-5 bg-white border-2 border-emerald-600 text-emerald-600 rounded-[2rem] font-black text-[10px] uppercase hover:bg-emerald-50 transition-all">Carica dal Cloud</button>
-                       </div>
-                    </div>
-                  )}
-               </section>
-
-               <section className="space-y-8">
-                  <h3 className="text-xl font-black text-gray-800 italic">Tema dell'App</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
-                    {(['emerald', 'blue', 'indigo', 'rose', 'amber'] as ThemeColor[]).map((c) => (
-                      <button key={c} onClick={() => setTheme(c)} className={`p-6 rounded-[2.5rem] border-4 transition-all flex flex-col items-center gap-4 ${theme === c ? 'border-emerald-200 bg-gray-50' : 'border-transparent bg-white shadow-sm hover:scale-105'}`}>
-                        <div className={`w-12 h-12 rounded-full ${c === 'emerald' ? 'bg-emerald-500' : c === 'blue' ? 'bg-blue-500' : c === 'indigo' ? 'bg-indigo-500' : c === 'rose' ? 'bg-rose-500' : 'bg-amber-500'} shadow-lg`}></div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{c}</span>
-                      </button>
-                    ))}
-                  </div>
-               </section>
-               
-               <button onClick={() => setView('dashboard')} className={`w-full py-6 ${themeClasses.bg} text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all`}>Torna alla Dashboard 🐾</button>
-            </div>
-          </div>
-        )}
       </main>
 
-      {/* Footer Mobile */}
       <nav className="md:hidden fixed bottom-6 left-6 right-6 bg-white/95 backdrop-blur-3xl border border-gray-100 rounded-[3rem] flex justify-around items-center p-6 z-40 shadow-2xl">
         <button onClick={() => setView('dashboard')} className={view === 'dashboard' ? themeClasses.text : 'text-gray-300'}><ICONS.Dashboard /></button>
         <button onClick={() => setView('study')} className={view === 'study' ? themeClasses.text : 'text-gray-300'}><ICONS.Study /></button>
         <button onClick={() => setView('badges')} className={view === 'badges' ? themeClasses.text : 'text-gray-300'}><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
-        <button onClick={() => setView('settings')} className={view === 'settings' ? themeClasses.text : 'text-gray-300'}><svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
+        <button onClick={() => setView('settings')} className={view === 'settings' ? themeClasses.text : 'text-gray-300'}><svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
       </nav>
 
-      {/* Modal Esami */}
       {showGeneralTestModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-2xl">
           <div className="bg-white w-full max-w-xl rounded-[6rem] p-16 md:p-24 shadow-3xl text-center space-y-16 relative overflow-hidden">
