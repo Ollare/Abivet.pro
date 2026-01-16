@@ -12,35 +12,44 @@ let userInfo: any = null;
 let tokenClient: any = null;
 
 export const initGoogleAuth = () => {
+  // Log utile per Alice per configurare la console di Google
+  console.log("Configurazione Cloud - Se hai errori 400, aggiungi questo URI alle Origini JavaScript autorizzate:", window.location.origin);
+
   return new Promise((resolve) => {
     const checkG = setInterval(() => {
       if ((window as any).google && (window as any).google.accounts) {
         clearInterval(checkG);
         
-        tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
-          client_id: CLIENT_ID,
-          scope: SCOPES,
-          callback: async (response: any) => {
-            if (response.access_token) {
-              accessToken = response.access_token;
-              try {
-                const userRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-                  headers: { Authorization: `Bearer ${accessToken}` }
-                });
-                userInfo = await userRes.json();
-                if ((window as any).onAuthSuccess) {
-                  (window as any).onAuthSuccess();
+        try {
+          tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: async (response: any) => {
+              if (response.access_token) {
+                accessToken = response.access_token;
+                try {
+                  const userRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                  });
+                  userInfo = await userRes.json();
+                  if ((window as any).onAuthSuccess) {
+                    (window as any).onAuthSuccess();
+                  }
+                } catch (e) {
+                  console.error("Errore recupero info utente", e);
                 }
-              } catch (e) {
-                console.error("Errore recupero info utente", e);
+                resolve(true);
+              } else {
+                console.error("Login fallito o cancellato dall'utente");
+                resolve(false);
               }
-              resolve(true);
-            } else {
-              resolve(false);
-            }
-          },
-        });
-        resolve(true);
+            },
+          });
+          resolve(true);
+        } catch (err) {
+          console.error("Errore durante initTokenClient:", err);
+          resolve(false);
+        }
       }
     }, 100);
   });
@@ -48,10 +57,9 @@ export const initGoogleAuth = () => {
 
 export const signIn = () => {
   if (!tokenClient) {
-    console.error("Client Google non inizializzato");
+    alert("Errore: Il sistema di Google non è ancora pronto. Riprova tra un istante Bau!");
     return;
   }
-  // Richiede il token (aprirà il popup di Google)
   tokenClient.requestAccessToken({ prompt: 'consent' });
 };
 
