@@ -14,6 +14,7 @@ REGOLE DI GENERAZIONE:
 6. Invia ESATTAMENTE il numero di domande richiesto in formato JSON valido.`;
 
 const getAIClient = () => {
+  // Nota: l'istruzione impone l'uso di process.env.API_KEY
   const key = process.env.API_KEY;
   if (!key) throw new Error("API_KEY missing");
   return new GoogleGenAI({ apiKey: key });
@@ -23,7 +24,7 @@ export const generateFlashcards = async (
   subject: string,
   year: Year,
   existingConcepts: string[] = [],
-  count: number = 20
+  count: number = 10 // Ridotto a 10
 ): Promise<Flashcard[]> => {
   const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";
@@ -66,7 +67,7 @@ export const generateQuizQuestions = async (
   subject: string,
   year: Year,
   existingQuestions: string[] = [],
-  count: number = 20
+  count: number = 10 // Ridotto a 10
 ): Promise<MultipleChoiceQuestion[]> => {
   const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";

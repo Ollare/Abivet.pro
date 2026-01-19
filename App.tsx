@@ -243,9 +243,10 @@ const App: React.FC = () => {
     try {
       const year = ABIVET_SUBJECTS[Year.First].includes(subject) ? Year.First : Year.Second;
       const [newCards, newQuiz] = await Promise.all([
-        generateFlashcards(subject, year, [], 15),
-        generateQuizQuestions(subject, year, [], 15)
+        generateFlashcards(subject, year, [], 10), // Modificato a 10
+        generateQuizQuestions(subject, year, [], 10) // Modificato a 10
       ]);
+      // Sovrascrittura: rimuove vecchi item della stessa materia e aggiunge i nuovi
       setCards(prev => [...prev.filter(c => c.subject !== subject), ...newCards]);
       setQuizDB(prev => [...prev.filter(q => q.subject !== subject), ...newQuiz]);
       clearInterval(timer); setGenProgress(100); setTimeout(() => setIsGenerating(false), 800);
@@ -409,7 +410,6 @@ const App: React.FC = () => {
                </div>
                <button onClick={() => setView('study')} className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-700">Interrompi</button>
             </div>
-            {/* FlashcardItem gestisce il Flip Q&A senza risposte multiple */}
             <FlashcardItem 
               key={currentSessionCards[currentIdx].id}
               card={currentSessionCards[currentIdx]} 
@@ -480,7 +480,7 @@ const App: React.FC = () => {
                     onClick={handleCompleteQuiz}
                     className="px-16 py-6 bg-[#5c871c] text-white rounded-3xl font-black uppercase text-lg shadow-2xl hover:bg-[#6fab1c] transition-all animate-pulse"
                   >
-                    Concludi Test 🐾
+                    Concludi Protocollo 🐾
                   </button>
                 )}
              </div>
