@@ -1,5 +1,8 @@
 {
-  "name": "Abivet Flashcard Pro",
-  "description": "Una piattaforma avanzata per studenti tecnici veterinari Abivet per studiare tramite flashcard generate dall'AI, monitorare i progressi e prepararsi agli esami.",
-  "requestFramePermissions": []
+  "name": "Abivet.Pro",
+  "description": "Piattaforma clinica per Tecnici Veterinari Abivet. Studio tramite AI, flashcard e simulazioni d'esame con Todo.AI.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
 }

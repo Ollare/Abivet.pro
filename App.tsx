@@ -1,39 +1,37 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { AppView, Flashcard, MultipleChoiceQuestion, TestResult, Year, ABIVET_SUBJECTS, StudyReminder, ThemeColor, Badge, SUBJECT_ICONS } from './types';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { AppView, Flashcard, MultipleChoiceQuestion, TestResult, Year, ABIVET_SUBJECTS, StudyReminder, Badge, SUBJECT_ICONS, DETAILED_SUBJECTS } from './types';
 import { ICONS } from './constants';
 import { FlashcardItem } from './components/FlashcardItem';
 import { StudyCalendar } from './components/StudyCalendar';
-import { generateFlashcards, generateQuizQuestions } from './services/geminiService';
+import { generateFlashcards, generateQuizQuestions, generateBalancedExam } from './services/geminiService';
 
 const TODO_QUOTES = [
-  "Bau Alice! Ho fiutato un 30 lode in Anatomia oggi! 🐾",
-  "Coda a mille! Pronta a sbranare i libri? 🦴",
-  "Alice, sei più sveglia di un Jack Russell alle 6 del mattino! 🐶",
-  "Woof! Sei un vero levriero dello studio, Alice! 🏎️",
-  "Non farti mordere dall'ansia! 👋",
-  "Alice, ho fiutato che oggi la Farmacologia non ha scampo! Woof! 💊",
-  "Sei il mio mito! Faccio il tifo per te! ❤️",
-  "Bau! Corriamo verso il diploma, Alice! 🎓"
+  "Ho fiutato un 30 lode in Anatomia oggi! 🐾",
+  "Pronta a sbranare i libri? 🦴",
+  "Sveglia come un Jack Russell alle 6 del mattino! 🐶",
+  "Un vero levriero dello studio! 🏎️",
+  "Oggi la Farmacologia non ha scampo! Woof! 💊",
+  "Corriamo verso il diploma! 🎓"
 ];
 
 const LOADING_MESSAGES = [
-  "Todo sta prelevando campioni di conoscenza...",
-  "Karma sta analizzando i vetrini della biologia...",
+  "Todo sta fiutando nuovi termini tecnici...",
+  "Analisi dei vetrini in corso (Karma help!)...",
   "Teo sta mettendo in ordine i protocolli clinici...",
-  "Bau! Quasi pronti con il referto Alice!",
-  "Fiutando nuove domande anatomiche... Woof!"
+  "Bau! Quasi pronti con il referto AI!",
+  "Sincronizzando i microchip della memoria..."
 ];
 
-const AI_FEEDBACK_TITLES = [
-  "🐾 Il Verdetto di Todo",
-  "🧪 L'Angolo Tecnico di Teo",
-  "🐈 Appunti Felini di Karma",
-  "🧬 Referto del Jack Russell",
-  "🩺 Protocollo di Todo",
-  "🩹 Analisi d'Urgenza",
-  "🧠 Memoria di Teo"
-];
+const AI_FEEDBACK_TITLES = ["🐾 Verdetto Todo", "🧪 Angolo Teo", "🐈 Appunti Karma", "🩺 Protocollo Todo"];
+
+const themeClasses = {
+  bg: 'bg-[#5c871c]',
+  text: 'text-[#5c871c]',
+  border: 'border-[#5c871c]',
+  light: 'bg-[#f4f7ed]',
+  ring: 'ring-[#5c871c]/20'
+};
 
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>('dashboard');
@@ -42,14 +40,14 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<TestResult[]>([]);
   const [badges, setBadges] = useState<Badge[]>([]);
   const [reminders, setReminders] = useState<StudyReminder[]>([]);
-  const [theme, setTheme] = useState<ThemeColor>('emerald');
-  const [showGeneralTestModal, setShowGeneralTestModal] = useState<null | '1' | '2' | 'F'>(null);
+  const [showGeneralTestModal, setShowGeneralTestModal] = useState<null | '1' | 'F'>(null);
+  const [showDiplomaCongrats, setShowDiplomaCongrats] = useState(false);
   const [currentQuote, setCurrentQuote] = useState("");
   
   const [selectedLabSubject, setSelectedLabSubject] = useState<string>(ABIVET_SUBJECTS[Year.First][0]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
-  const [currentLoadMsg, setCurrentLoadMsg] = useState("");
+  const [loadMsg, setLoadMsg] = useState("");
 
   const [currentSessionCards, setCurrentSessionCards] = useState<Flashcard[]>([]);
   const [currentSessionQuiz, setCurrentSessionQuiz] = useState<MultipleChoiceQuestion[]>([]);
@@ -58,534 +56,496 @@ const App: React.FC = () => {
   const [activeSubject, setActiveSubject] = useState<string>('Tutto');
   const [lastSessionResult, setLastSessionResult] = useState<TestResult | null>(null);
   const [correctCount, setCorrectCount] = useState(0);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
   const STORAGE_KEYS = {
-    CARDS: 'abivet_alice_cards_v22',
-    QUIZ: 'abivet_alice_quiz_v22',
-    HISTORY: 'abivet_alice_history_v22',
-    BADGES: 'abivet_alice_badges_v22',
-    REMINDERS: 'abivet_alice_reminders_v22',
-    THEME: 'abivet_alice_theme_v22'
+    CARDS: 'ab_v21_cards', QUIZ: 'ab_v21_quiz', HISTORY: 'ab_v21_history', BADGES: 'ab_v21_badges', REMINDERS: 'ab_v21_rem'
   };
 
   useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const main = document.querySelector('main');
+    if (main) main.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [view, currentIdx]);
+
+  useEffect(() => {
     const load = (key: string) => localStorage.getItem(key);
-    if (load(STORAGE_KEYS.CARDS)) setCards(JSON.parse(load(STORAGE_KEYS.CARDS)!));
-    if (load(STORAGE_KEYS.QUIZ)) setQuizDB(JSON.parse(load(STORAGE_KEYS.QUIZ)!));
-    if (load(STORAGE_KEYS.HISTORY)) setHistory(JSON.parse(load(STORAGE_KEYS.HISTORY)!));
-    if (load(STORAGE_KEYS.BADGES)) setBadges(JSON.parse(load(STORAGE_KEYS.BADGES)!));
-    if (load(STORAGE_KEYS.REMINDERS)) setReminders(JSON.parse(load(STORAGE_KEYS.REMINDERS)!));
-    if (load(STORAGE_KEYS.THEME)) setTheme(load(STORAGE_KEYS.THEME) as ThemeColor || 'emerald');
-    refreshQuote();
+    try {
+      if (load(STORAGE_KEYS.CARDS)) setCards(JSON.parse(load(STORAGE_KEYS.CARDS)!));
+      if (load(STORAGE_KEYS.QUIZ)) setQuizDB(JSON.parse(load(STORAGE_KEYS.QUIZ)!));
+      if (load(STORAGE_KEYS.HISTORY)) setHistory(JSON.parse(load(STORAGE_KEYS.HISTORY)!));
+      if (load(STORAGE_KEYS.BADGES)) setBadges(JSON.parse(load(STORAGE_KEYS.BADGES)!));
+      if (load(STORAGE_KEYS.REMINDERS)) setReminders(JSON.parse(load(STORAGE_KEYS.REMINDERS)!));
+      refreshQuote();
+    } catch (e) { console.error("Persistence error", e); }
   }, []);
 
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards)), [cards]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.QUIZ, JSON.stringify(quizDB)), [quizDB]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history)), [history]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.BADGES, JSON.stringify(badges)), [badges]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(reminders)), [reminders]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.THEME, theme), [theme]);
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards));
+    localStorage.setItem(STORAGE_KEYS.QUIZ, JSON.stringify(quizDB));
+    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
+    localStorage.setItem(STORAGE_KEYS.BADGES, JSON.stringify(badges));
+    localStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(reminders));
+  }, [cards, quizDB, history, badges, reminders]);
+
+  useEffect(() => {
+    if (timeLeft === null) return;
+    if (timeLeft <= 0) {
+      handleCompleteQuiz();
+      return;
+    }
+    const timer = setInterval(() => setTimeLeft(p => (p !== null ? p - 1 : null)), 1000);
+    return () => clearInterval(timer);
+  }, [timeLeft]);
 
   const subj1 = ABIVET_SUBJECTS[Year.First];
   const subj2 = ABIVET_SUBJECTS[Year.Second];
   const allSubj = [...subj1, ...subj2];
-
-  const badges1 = badges.filter(b => subj1.includes(b.subject));
-  const badges2 = badges.filter(b => subj2.includes(b.subject));
-
-  const isExam1Unlocked = badges1.length === subj1.length;
-  const isExam2Unlocked = badges2.length === subj2.length;
+  const badges1 = useMemo(() => badges.filter(b => subj1.includes(b.subject)), [badges, subj1]);
+  const badges2 = useMemo(() => badges.filter(b => subj2.includes(b.subject)), [badges, subj2]);
   
-  const exam1Passed = history.some(h => h.subject === "Esame Primo Anno" && h.accuracy >= 60);
-  const exam2Passed = history.some(h => h.subject === "Esame Secondo Anno" && h.accuracy >= 60);
-
-  const isFinalUnlocked = isExam1Unlocked && isExam2Unlocked && exam1Passed && exam2Passed;
-
   const totalAccuracy = useMemo(() => {
     if (history.length === 0) return 0;
     return Math.round(history.reduce((a, b) => a + b.accuracy, 0) / history.length);
   }, [history]);
 
+  const exam1Passed = history.some(h => h.subject === "Esame Primo Anno" && h.accuracy >= 60);
+  const examFinalPassed = history.some(h => h.subject === "Esame Finale" && h.accuracy >= 60);
+  const isFinalUnlocked = badges1.length === subj1.length && badges2.length === subj2.length && exam1Passed;
+
+  const todoAdvice = useMemo(() => {
+    const valid = history.filter(h => !h.subject.startsWith('Esame') && h.subject !== 'Tutto' && h.type === 'Quiz');
+    const uniqueModulesTested = new Set(valid.map(h => h.subject));
+    if (uniqueModulesTested.size < 5) return { locked: true, progress: uniqueModulesTested.size };
+    
+    const stats: Record<string, {acc: number, count: number, last: number}> = {};
+    valid.forEach(h => {
+      if (!stats[h.subject]) stats[h.subject] = { acc: 0, count: 0, last: 0 };
+      stats[h.subject].acc += h.accuracy;
+      stats[h.subject].count++;
+      stats[h.subject].last = h.accuracy;
+    });
+    const worst = Object.entries(stats).sort((a,b) => a[1].last - b[1].last)[0];
+    return { locked: false, subject: worst[0], accuracy: Math.round(worst[1].acc / worst[1].count), isFailed: worst[1].last < 60 };
+  }, [history]);
+
   const refreshQuote = () => setCurrentQuote(TODO_QUOTES[Math.floor(Math.random() * TODO_QUOTES.length)]);
 
-  const themeClasses = useMemo(() => {
-    const themes = {
-      emerald: { bg: 'bg-emerald-600', text: 'text-emerald-600', border: 'border-emerald-600', light: 'bg-emerald-50', hover: 'hover:bg-emerald-700', shadow: 'shadow-emerald-200' },
-      blue: { bg: 'bg-blue-600', text: 'text-blue-600', border: 'border-blue-600', light: 'bg-blue-50', hover: 'hover:bg-blue-700', shadow: 'shadow-blue-200' },
-      indigo: { bg: 'bg-indigo-600', text: 'text-indigo-600', border: 'border-indigo-600', light: 'bg-indigo-50', hover: 'hover:bg-indigo-700', shadow: 'shadow-indigo-200' },
-      rose: { bg: 'bg-rose-600', text: 'text-rose-600', border: 'border-rose-600', light: 'bg-rose-50', hover: 'hover:bg-rose-700', shadow: 'shadow-rose-200' },
-      amber: { bg: 'bg-amber-600', text: 'text-amber-600', border: 'border-amber-600', light: 'bg-amber-50', hover: 'hover:bg-amber-700', shadow: 'shadow-amber-200' },
+  const startQuizSession = async (s: string, type: 'Normal' | '1' | 'F' = 'Normal') => {
+    let pool: MultipleChoiceQuestion[] = [];
+    let count = 10;
+    let time = null;
+
+    if (type === '1') { count = 30; time = 30 * 60; } 
+    else if (type === 'F') { count = 100; time = 60 * 60; }
+
+    if (type === '1' || type === 'F') {
+      setIsGenerating(true); setGenProgress(0);
+      setLoadMsg(`Todo sta preparando il protocollo d'esame (${count} Q. con 5 opzioni)...`);
+      const timer = setInterval(() => setGenProgress(p => p < 90 ? p + 1 : p), 700);
+      try {
+        pool = await generateBalancedExam(type as any, count);
+        // NOTA: Per gli esami non sovrascriviamo il DB quiz locale per non perdere quelli dei moduli singoli
+        setQuizDB(prev => [...prev, ...pool]);
+        clearInterval(timer); setGenProgress(100);
+      } catch(e) { clearInterval(timer); setIsGenerating(false); return alert("Errore connessione AI."); }
+      setIsGenerating(false);
+    } else {
+      pool = s === 'Tutto' ? quizDB : quizDB.filter(q => q.subject === s);
+      if (pool.length === 0) return alert("Genera prima le domande nel Laboratorio AI!");
+      pool = pool.sort(() => Math.random() - 0.5).slice(0, 10);
+    }
+    
+    setCurrentSessionQuiz(pool);
+    setCurrentIdx(0); setUserSelections({}); setTimeLeft(time);
+    setActiveSubject(type === '1' ? 'Esame Primo Anno' : type === 'F' ? 'Esame Finale' : s); 
+    setView('quiz_session');
+  };
+
+  const handleCompleteQuiz = useCallback(() => {
+    let correct = 0; let wrong = 0; let unanswered = 0;
+    const isExam = activeSubject.startsWith('Esame');
+    
+    currentSessionQuiz.forEach((q, i) => {
+      const sel = userSelections[i];
+      if (sel === q.correctIndex) correct++;
+      else if (sel === undefined || sel === -1) unanswered++;
+      else wrong++;
+    });
+
+    let finalAccuracy = 0; let points = 0;
+    if (isExam) {
+      points = (correct * 2) - (wrong * 0.5) - (unanswered * 0.25);
+      finalAccuracy = (points / (currentSessionQuiz.length * 2)) * 100;
+      if (finalAccuracy < 0) finalAccuracy = 0;
+    } else {
+      finalAccuracy = (correct / currentSessionQuiz.length) * 100;
+    }
+
+    const res: TestResult = { 
+      id: Math.random().toString(), date: Date.now(), subject: activeSubject, 
+      type: isExam ? (activeSubject as any) : 'Quiz', 
+      totalCards: currentSessionQuiz.length, correctAnswers: correct, accuracy: finalAccuracy,
+      points: points, details: currentSessionQuiz.map((q, i) => ({ q, selected: userSelections[i] }))
     };
-    return themes[theme];
-  }, [theme]);
+
+    setHistory(prev => [res, ...prev]);
+    setLastSessionResult(res);
+    setTimeLeft(null);
+
+    if (!isExam && activeSubject !== 'Tutto' && finalAccuracy >= 80) {
+      if (!badges.some(b => b.subject === activeSubject)) {
+        setBadges(prev => [...prev, { id: Math.random().toString(), subject: activeSubject, icon: SUBJECT_ICONS[activeSubject] || '🏅', earnedDate: Date.now() }]);
+      }
+    }
+    setView('review');
+  }, [activeSubject, currentSessionQuiz, userSelections, badges]);
 
   const generateLaboratoryItems = async (subject: string) => {
     if (isGenerating) return;
-    setIsGenerating(true);
-    setGenProgress(5);
-    setCurrentLoadMsg(LOADING_MESSAGES[0]);
-    
-    const existingC = cards.filter(c => c.subject === subject).map(c => c.concept);
-    const existingQ = quizDB.filter(q => q.subject === subject).map(q => q.question);
-
-    const interval = setInterval(() => {
-      setCurrentLoadMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
-      setGenProgress(p => p < 90 ? p + 2 : p);
-    }, 2000);
-
+    setIsGenerating(true); setGenProgress(0);
+    setLoadMsg(LOADING_MESSAGES[0]);
+    const timer = setInterval(() => {
+      setGenProgress(p => p < 95 ? p + 2 : p);
+      setLoadMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
+    }, 1200);
     try {
-      const year = subj1.includes(subject) ? Year.First : Year.Second;
-      // Generazione 20 Flashcard e 20 Quiz richiesti
+      const year = ABIVET_SUBJECTS[Year.First].includes(subject) ? Year.First : Year.Second;
       const [newCards, newQuiz] = await Promise.all([
-        generateFlashcards(subject, year, existingC, 20),
-        generateQuizQuestions(subject, year, existingQ, 20)
+        generateFlashcards(subject, year, [], 20),
+        generateQuizQuestions(subject, year, [], 20)
       ]);
-      setCards(prev => [...prev, ...newCards]);
-      setQuizDB(prev => [...prev, ...newQuiz]);
-      setGenProgress(100);
-      clearInterval(interval);
-      setTimeout(() => { setIsGenerating(false); setGenProgress(0); refreshQuote(); }, 800);
-    } catch (e) {
-      clearInterval(interval);
-      alert("Bau! Errore tecnico nel laboratorio.");
-      setIsGenerating(false);
-    }
-  };
-
-  const checkBadgeUnlock = (subject: string, accuracy: number) => {
-    if (accuracy >= 80 && !badges.find(b => b.subject === subject)) {
-      setBadges(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), subject, icon: SUBJECT_ICONS[subject] || "🏆", earnedDate: Date.now() }]);
-      alert(`BAU! Alice, hai guadagnato il Badge in ${subject}! 🦴🏆`);
-    }
-  };
-
-  const finishSession = (type: any, final: number, details?: any[], totalCount?: number) => {
-    const count = totalCount || details?.length || 10;
-    const accuracy = (final / count) * 100;
-    const res: TestResult = { id: Math.random().toString(36).substr(2,9), date: Date.now(), subject: activeSubject, type, totalCards: count, correctAnswers: final, accuracy, details };
-    setHistory(prev => [res, ...prev]); 
-    setLastSessionResult(res); 
-    if (activeSubject !== 'Tutto' && !activeSubject.startsWith("Esame")) checkBadgeUnlock(activeSubject, accuracy);
-    setView('review');
-  };
-
-  const handleFlashcardGrade = (c: boolean) => {
-    const newCorrect = c ? correctCount + 1 : correctCount;
-    setCorrectCount(newCorrect);
-    if (currentIdx < currentSessionCards.length - 1) { setCurrentIdx(p => p + 1); }
-    else finishSession('Flashcard', newCorrect, undefined, currentSessionCards.length);
-  };
-
-  const confirmQuiz = () => {
-    let final = 0;
-    const details = currentSessionQuiz.map((q, i) => {
-      const isCorrect = userSelections[i] === q.correctIndex;
-      if (isCorrect) final++;
-      return { q, selected: userSelections[i] };
-    });
-    finishSession(activeSubject.startsWith("Esame") ? activeSubject : 'Quiz', final, details);
-  };
-
-  const startQuizSession = (s: string, type: 'Normal' | '1' | '2' | 'F' = 'Normal') => {
-    let pool: MultipleChoiceQuestion[] = [];
-    let label = s;
-    if (type === '1') { pool = quizDB.filter(q => subj1.includes(q.subject)); label = "Esame Primo Anno"; }
-    else if (type === '2') { pool = quizDB.filter(q => subj2.includes(q.subject)); label = "Esame Secondo Anno"; }
-    else if (type === 'F') { pool = quizDB; label = "Esame Finale"; }
-    else { pool = s === 'Tutto' ? quizDB : quizDB.filter(q => q.subject === s); }
-
-    if (pool.length === 0) return alert(`Bau! Non hai ancora contenuti per questo esame.`);
-    // Ridotto il numero di domande a 10 per sessione
-    setCurrentSessionQuiz(pool.sort(() => Math.random() - 0.5).slice(0, 10));
-    setCurrentIdx(0); setUserSelections({}); setActiveSubject(label); setView('quiz_session');
+      
+      // LOGICA OVERWRITE: Rimuovi vecchi dati di questo modulo prima di salvare i nuovi
+      setCards(prev => [...prev.filter(c => c.subject !== subject), ...newCards]);
+      setQuizDB(prev => [...prev.filter(q => q.subject !== subject), ...newQuiz]);
+      
+      clearInterval(timer); setGenProgress(100);
+      setTimeout(() => setIsGenerating(false), 800);
+    } catch (e) { clearInterval(timer); setIsGenerating(false); alert("Errore connessione AI."); }
   };
 
   const startFlashcardSession = (s: string) => {
     const pool = s === 'Tutto' ? cards : cards.filter(c => c.subject === s);
-    if (pool.length === 0) return alert(`Bau! Non hai ancora cards per ${s}. Generane alcune nel laboratorio!`);
+    if (pool.length === 0) return alert("Usa il Laboratorio AI per generare le flashcard!");
     setCurrentSessionCards(pool.sort(() => Math.random() - 0.5).slice(0, 10));
-    setCurrentIdx(0); 
-    setCorrectCount(0);
-    setActiveSubject(s); 
-    setView('session');
+    setCurrentIdx(0); setCorrectCount(0); setActiveSubject(s); setView('session');
   };
 
   return (
-    <div className="min-h-screen bg-[#FDFDFF] flex flex-col md:flex-row pb-24 md:pb-0 font-sans">
-      
-      {/* Sidebar */}
-      <aside className="w-80 bg-white border-r border-gray-100 hidden md:flex flex-col fixed inset-y-0 z-30 shadow-sm overflow-y-auto custom-scrollbar">
-        <div className="p-10 flex flex-col items-center border-b border-gray-50">
-          <div onClick={refreshQuote} className={`w-20 h-20 ${themeClasses.bg} rounded-[2rem] flex items-center justify-center text-white mb-6 shadow-2xl cursor-pointer hover:rotate-12 transition-all text-4xl active:scale-90`}>🐶</div>
-          <h1 className="text-3xl font-black text-gray-900 italic">ABIVET<span className={themeClasses.text}>.PRO</span></h1>
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-3 text-center">todo.ai 🐾</p>
+    <div className="min-h-screen bg-[#fcfcfc] flex flex-col md:flex-row pb-24 md:pb-0 font-['Inter']">
+      {/* Sidebar Desktop */}
+      <aside className="w-80 bg-white border-r border-gray-100 hidden md:flex flex-col fixed inset-y-0 z-30 shadow-sm">
+        <div className="p-10 border-b border-gray-50 text-center">
+          <div onClick={refreshQuote} className={`w-20 h-20 mx-auto ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-white text-4xl shadow-2xl mb-4 cursor-pointer hover:rotate-6 transition-all active:scale-95`}>🐶</div>
+          <h1 className="text-2xl font-black italic">ABIVET<span className={themeClasses.text}>.PRO</span></h1>
         </div>
-        <nav className="flex-1 px-6 space-y-2 mt-8">
-          <button onClick={() => setView('dashboard')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'dashboard' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><ICONS.Dashboard /> Dashboard</button>
-          <button onClick={() => setView('study')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'study' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><ICONS.Study /> Libreria Moduli</button>
-          <button onClick={() => setView('badges')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'badges' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg> Bacheca Badge</button>
-          <button onClick={() => setView('calendar')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'calendar' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg> Calendario</button>
-          <button onClick={() => setView('history')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'history' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><ICONS.History /> Registro</button>
-          <button onClick={() => setView('settings')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[1.5rem] text-sm font-black transition-all ${view === 'settings' ? themeClasses.bg + ' text-white shadow-xl shadow-emerald-200' : 'text-gray-500 hover:bg-gray-50'}`}><svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg> Impostazioni</button>
+        <nav className="flex-1 p-6 space-y-2">
+          {[
+            { id: 'dashboard', icon: <ICONS.Dashboard />, label: 'Dashboard' },
+            { id: 'study', icon: <ICONS.Study />, label: 'Libreria' },
+            { id: 'badges', icon: <ICONS.Badges />, label: 'Badge' },
+            { id: 'calendar', icon: <ICONS.Calendar />, label: 'Agenda' },
+            { id: 'history', icon: <ICONS.History />, label: 'Registro' }
+          ].map(item => (
+            <button key={item.id} onClick={() => setView(item.id as AppView)} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-sm font-bold transition-all ${view === item.id ? themeClasses.bg + ' text-white shadow-xl' : 'text-gray-400 hover:bg-gray-50'}`}>{item.icon} {item.label}</button>
+          ))}
         </nav>
-        <div className="p-6">
-           <div className="bg-gray-50 rounded-[2.5rem] p-8 border border-gray-100 flex flex-col items-center text-center">
-              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Esito Globale</span>
-              <span className={`text-5xl font-black ${totalAccuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{totalAccuracy}%</span>
-           </div>
-        </div>
       </aside>
 
-      <main className="flex-1 md:ml-80 p-4 md:p-12 overflow-y-auto max-h-screen custom-scrollbar pb-32">
-        
+      <main className="flex-1 md:ml-80 p-4 md:p-12 overflow-y-auto max-h-screen custom-scrollbar">
         {view === 'dashboard' && (
-          <div className="max-w-5xl mx-auto space-y-10 animate-fadeIn">
-            <div className="flex flex-col md:row gap-8 items-center bg-white p-8 md:p-12 rounded-[3.5rem] border border-gray-100 shadow-sm relative overflow-hidden group">
-               <div onClick={refreshQuote} className={`w-28 h-28 md:w-36 md:h-36 ${themeClasses.bg} rounded-[3rem] flex items-center justify-center text-6xl shadow-2xl cursor-pointer hover:scale-105 active:rotate-12 transition-all`}>🐶</div>
-               <div className="flex-1 space-y-4 text-center md:text-left">
-                  <h2 className="text-4xl md:text-5xl font-black text-gray-900 italic tracking-tighter">Bentornata, <span className={themeClasses.text}>Alice!</span>🐾</h2>
-                  <div className={`${themeClasses.light} p-6 rounded-[2rem] border ${themeClasses.border} border-opacity-10 shadow-inner`}><p className={`${themeClasses.text} font-bold italic`}>"{currentQuote}"</p></div>
+          <div className="max-w-5xl mx-auto space-y-12 animate-fadeIn pb-12">
+            <div className="bg-white p-8 md:p-12 rounded-[3.5rem] border border-gray-100 shadow-sm flex flex-col md:flex-row items-center gap-8 relative overflow-hidden group">
+               <div className="absolute top-0 right-0 p-10 opacity-[0.03] scale-150 rotate-12 pointer-events-none text-4xl">🦴🐾</div>
+               <div onClick={refreshQuote} className={`w-28 h-28 md:w-32 md:h-32 ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-5xl md:text-6xl shadow-2xl cursor-pointer transition-all hover:scale-110 active:rotate-12`}>🐶</div>
+               <div className="flex-1 text-center md:text-left space-y-3 z-10">
+                  <h2 className="text-3xl md:text-4xl font-black italic text-gray-800">Bentornata Alice! 🐾</h2>
+                  <div className={`${themeClasses.light} p-5 rounded-2xl border ${themeClasses.border} border-opacity-10 shadow-inner`}><p className={`${themeClasses.text} font-bold italic text-lg leading-relaxed`}>"{currentQuote}"</p></div>
+                  <div className="flex items-center justify-center md:justify-start gap-4 pt-2">
+                     <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Precisione Media:</span>
+                     <div className="bg-gray-100 rounded-full h-3 w-32 overflow-hidden shadow-inner"><div className={`${themeClasses.bg} h-full transition-all duration-1000 shadow-[0_0_10px_rgba(92,135,28,0.5)]`} style={{width: `${totalAccuracy}%`}}></div></div>
+                     <span className={`text-sm font-black ${totalAccuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{totalAccuracy}%</span>
+                  </div>
                </div>
             </div>
 
-            {/* Missione Osso d'Oro - Restyling stile missione */}
-            <section className="relative group">
-               <div className="absolute -inset-1 bg-gradient-to-r from-amber-400 via-blue-500 to-emerald-600 rounded-[4.5rem] blur opacity-15 group-hover:opacity-30 transition duration-1000"></div>
-               <div className="relative p-10 md:p-16 rounded-[4.5rem] bg-white border-2 border-gray-50 shadow-sm space-y-16">
-                  <div className="flex flex-col md:flex-row justify-between items-center gap-8">
-                     <div className="space-y-3">
-                        <h3 className="text-5xl font-black text-gray-900 italic tracking-tighter">Missione Osso d'Oro 🦴</h3>
-                        <p className="text-gray-400 font-bold uppercase tracking-widest text-sm">Il tuo cammino clinico passo dopo passo</p>
-                     </div>
-                     <div className="flex -space-x-4">
-                        <div className={`w-16 h-16 rounded-full border-4 border-white ${isExam1Unlocked ? 'bg-amber-400' : 'bg-gray-100'} flex items-center justify-center text-2xl shadow-xl transition-all`}>🥇</div>
-                        <div className={`w-16 h-16 rounded-full border-4 border-white ${isExam2Unlocked ? 'bg-blue-400' : 'bg-gray-100'} flex items-center justify-center text-2xl shadow-xl transition-all`}>🥈</div>
-                        <div className={`w-16 h-16 rounded-full border-4 border-white ${isFinalUnlocked ? 'bg-emerald-500' : 'bg-gray-100'} flex items-center justify-center text-2xl shadow-xl transition-all`}>🏆</div>
-                     </div>
+            {/* Il Fiuto di Todo */}
+            <section className="p-1 rounded-[4rem] bg-gradient-to-br from-[#5c871c] via-[#86b533] to-[#a2d149] shadow-2xl overflow-hidden">
+               <div className="bg-white m-1 p-8 md:p-14 rounded-[3.8rem] space-y-8 relative">
+                  <div className="flex items-center gap-6">
+                     <div className="w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-gray-900 flex items-center justify-center text-3xl md:text-4xl shadow-xl hover:rotate-6 transition-transform">🕵️‍♂️🦴</div>
+                     <div><h3 className="text-2xl md:text-3xl font-black italic">Il Fiuto di Todo</h3><p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Unità Investigativa Clinica</p></div>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-                     {/* Step 1: Primo Anno */}
-                     <div className={`relative p-10 rounded-[3.5rem] border-2 flex flex-col gap-6 transition-all ${isExam1Unlocked ? 'border-amber-200 bg-amber-50/50 shadow-lg scale-105' : 'border-gray-50 opacity-50'}`}>
-                        <div className="flex justify-between items-start">
-                           <span className="text-5xl">🥇</span>
-                           <h4 className="text-xl font-black italic">Esame 1° Anno</h4>
-                        </div>
-                        <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
-                           <div className="bg-amber-400 h-full transition-all duration-500" style={{width: `${(badges1.length/subj1.length)*100}%`}}></div>
-                        </div>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{badges1.length}/{subj1.length} BADGE OTTENUTI</p>
-                        <button disabled={!isExam1Unlocked} onClick={() => setShowGeneralTestModal('1')} className={`py-4 rounded-2xl font-black text-xs uppercase ${isExam1Unlocked ? 'bg-amber-500 text-white shadow-xl hover:bg-amber-600 animate-pulse' : 'bg-gray-100 text-gray-400'}`}>AVVIA MISSIONE</button>
-                        {exam1Passed && <span className="text-[10px] text-emerald-600 font-black text-center uppercase tracking-widest bg-emerald-50 py-2 rounded-xl">SUPERATA ✅</span>}
-                     </div>
-
-                     {/* Step 2: Secondo Anno */}
-                     <div className={`relative p-10 rounded-[3.5rem] border-2 flex flex-col gap-6 transition-all ${isExam2Unlocked ? 'border-blue-200 bg-blue-50/50 shadow-lg scale-105' : 'border-gray-50 opacity-50'}`}>
-                        <div className="flex justify-between items-start">
-                           <span className="text-5xl">🥈</span>
-                           <h4 className="text-xl font-black italic">Esame 2° Anno</h4>
-                        </div>
-                        <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
-                           <div className="bg-blue-400 h-full transition-all duration-500" style={{width: `${(badges2.length/subj2.length)*100}%`}}></div>
-                        </div>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{badges2.length}/{subj2.length} BADGE OTTENUTI</p>
-                        <button disabled={!isExam2Unlocked} onClick={() => setShowGeneralTestModal('2')} className={`py-4 rounded-2xl font-black text-xs uppercase ${isExam2Unlocked ? 'bg-blue-500 text-white shadow-xl hover:bg-blue-600 animate-pulse' : 'bg-gray-100 text-gray-400'}`}>AVVIA MISSIONE</button>
-                        {exam2Passed && <span className="text-[10px] text-emerald-600 font-black text-center uppercase tracking-widest bg-emerald-50 py-2 rounded-xl">SUPERATA ✅</span>}
-                     </div>
-
-                     {/* Step 3: Finale */}
-                     <div className={`relative p-10 rounded-[3.5rem] border-2 flex flex-col gap-6 transition-all ${isFinalUnlocked ? 'border-emerald-200 bg-emerald-50 shadow-2xl scale-110' : 'border-gray-50 opacity-30'}`}>
-                        <div className="flex justify-between items-start">
-                           <span className="text-6xl animate-bounce">🏆</span>
-                           <h4 className="text-xl font-black italic">Traguardo Finale</h4>
-                        </div>
-                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex-1">Raggiungi il Diploma Abivet conquistando l'Osso d'Oro.</p>
-                        <button disabled={!isFinalUnlocked} onClick={() => setShowGeneralTestModal('F')} className={`py-5 rounded-3xl font-black text-sm uppercase ${isFinalUnlocked ? 'bg-emerald-600 text-white shadow-2xl shadow-emerald-200 hover:bg-emerald-700' : 'bg-gray-100 text-gray-400'}`}>DIPLOMA ABIVET</button>
-                     </div>
-                  </div>
-               </div>
-            </section>
-
-            {/* Laboratorio Analisi Colorato */}
-            <section className="bg-gradient-to-br from-[#1E293B] to-[#0F172A] p-10 md:p-14 rounded-[4rem] shadow-2xl relative overflow-hidden group">
-               <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/10 blur-3xl rounded-full"></div>
-               <div className="relative z-10 space-y-10">
-                  <div className="space-y-3 text-center md:text-left">
-                     <h3 className="text-3xl font-black text-white italic tracking-tight flex items-center gap-3">🧪 Laboratorio di Analisi Cliniche AI</h3>
-                     <p className="text-gray-400 font-bold text-sm">Creiamo 20 Flashcard e 20 Quiz Abivet per la tua specializzazione.</p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-5">
-                     <select value={selectedLabSubject} onChange={(e) => setSelectedLabSubject(e.target.value)} className="flex-1 bg-white/5 border border-white/10 rounded-[2.5rem] px-10 py-7 text-sm font-black text-white outline-none appearance-none backdrop-blur-md focus:bg-white/10 transition-all">
-                        {allSubj.map(s => <option key={s} value={s} className="bg-[#0F172A]">{s}</option>)}
-                     </select>
-                     <button disabled={isGenerating} onClick={() => generateLaboratoryItems(selectedLabSubject)} className={`px-16 py-7 rounded-[2.5rem] font-black text-sm uppercase tracking-widest transition-all ${isGenerating ? 'bg-emerald-900 text-emerald-400' : 'bg-emerald-500 text-white hover:bg-emerald-400 shadow-2xl shadow-emerald-500/20 active:scale-95'}`}>
-                        {isGenerating ? "Analisi in corso..." : "Avvia Analisi 🧪"}
-                     </button>
-                  </div>
-                  {isGenerating && (
-                    <div className="space-y-4 animate-fadeIn">
-                       <div className="w-full h-5 bg-black/40 rounded-full overflow-hidden p-1 border border-white/5 shadow-inner">
-                          <div className="h-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-emerald-500 rounded-full transition-all duration-300" style={{width: `${genProgress}%`}}></div>
+                  {!todoAdvice.locked ? (
+                    <div className={`p-8 md:p-10 rounded-[3rem] border-4 flex flex-col md:flex-row items-center gap-10 transition-all ${todoAdvice.isFailed ? 'bg-rose-50 border-rose-300' : themeClasses.light + ' ' + themeClasses.border}`}>
+                       <div className="text-7xl md:text-8xl drop-shadow-2xl animate-pulse">{todoAdvice.isFailed ? '🩹🐈' : '🩺🐕'}</div>
+                       <div className="flex-1 space-y-3">
+                          <p className={`text-xl md:text-2xl font-black ${todoAdvice.isFailed ? 'text-rose-900' : 'text-[#5c871c]'}`}>Criticità: {todoAdvice.subject}</p>
+                          <p className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2 text-gray-500"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Risultato Recente: {todoAdvice.accuracy}%</p>
+                          <p className="italic font-medium text-lg text-gray-600">"Alice, il mio fiuto indica che devi ripassare tutti i sottoargomenti di questo modulo!"</p>
                        </div>
-                       <div className="flex justify-between items-center px-2">
-                          <p className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em]">{currentLoadMsg}</p>
-                          <span className="text-xs font-black text-white">{genProgress}%</span>
-                       </div>
+                       <button onClick={() => startQuizSession(todoAdvice.subject!)} className="w-full md:w-auto px-12 py-6 bg-gray-900 text-white rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-black transition-all shadow-2xl active:scale-95">RIPETI QUIZ 🦴</button>
+                    </div>
+                  ) : (
+                    <div className="p-10 bg-gray-50 rounded-[3rem] border-2 border-dashed border-gray-200 text-center space-y-4">
+                       <p className="text-lg font-bold text-gray-500 italic">"Alice, completa quiz in almeno 5 moduli diversi per attivare il mio fiuto clinico! ({todoAdvice.progress}/5)"</p>
                     </div>
                   )}
                </div>
             </section>
-          </div>
-        )}
 
-        {view === 'settings' && (
-          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn">
-            <header className="space-y-4">
-              <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter">Impostazioni Pro ⚙️</h2>
-              <p className="text-gray-400 font-bold">Personalizza la tua interfaccia di studio Alice.</p>
-            </header>
-            
-            <div className="bg-white p-12 rounded-[4rem] border border-gray-100 shadow-sm space-y-10">
-               <section className="space-y-8">
-                  <h3 className="text-xl font-black text-gray-800 italic">Tema dell'App</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
-                    {(['emerald', 'blue', 'indigo', 'rose', 'amber'] as ThemeColor[]).map((c) => (
-                      <button 
-                        key={c} 
-                        onClick={() => setTheme(c)}
-                        className={`p-6 rounded-[2.5rem] border-4 transition-all flex flex-col items-center gap-4 ${theme === c ? 'border-emerald-200 bg-gray-50' : 'border-transparent bg-white shadow-sm hover:scale-105'}`}
-                      >
-                        <div className={`w-12 h-12 rounded-full ${
-                          c === 'emerald' ? 'bg-emerald-500' : 
-                          c === 'blue' ? 'bg-blue-500' : 
-                          c === 'indigo' ? 'bg-indigo-500' : 
-                          c === 'rose' ? 'bg-rose-500' : 'bg-amber-500'
-                        } shadow-lg`}></div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{c}</span>
-                      </button>
-                    ))}
+            {/* Missione Osso d'Oro */}
+            <div className="bg-white p-8 md:p-16 rounded-[4.5rem] border border-gray-100 shadow-sm space-y-12">
+               <h3 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-900 text-center md:text-left">Missione Osso d'Oro 🦴</h3>
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${badges1.length === subj1.length ? 'border-amber-400 bg-gradient-to-br from-amber-50 to-orange-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
+                    <div className="absolute -bottom-10 -right-10 opacity-10 text-9xl">🥇</div>
+                    <span className="text-6xl drop-shadow-lg">🥇</span>
+                    <h4 className="text-2xl font-black italic text-amber-900 leading-none">Esame 1° Anno</h4>
+                    <div className="space-y-2 relative z-10">
+                       <div className="flex justify-between text-[10px] font-black text-amber-800 uppercase tracking-widest"><span>Badge Moduli</span> <span>{badges1.length}/{subj1.length}</span></div>
+                       <div className="h-4 bg-white/50 rounded-full overflow-hidden shadow-inner border border-amber-200/50"><div className="h-full bg-amber-500 transition-all duration-1000" style={{width: `${(badges1.length/subj1.length)*100}%`}}></div></div>
+                    </div>
+                    <button disabled={isGenerating} onClick={() => setShowGeneralTestModal('1')} className={`w-full py-6 rounded-[2rem] font-black text-sm uppercase shadow-xl transition-all relative z-10 ${exam1Passed ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>{exam1Passed ? "COMPLETATO ✅" : "AVVIA (30 Q.)"}</button>
                   </div>
-               </section>
 
-               <section className="p-10 rounded-[3rem] bg-gray-50 space-y-4 border border-gray-100">
-                  <p className="text-sm font-bold text-gray-600 leading-relaxed italic">"Bau Alice! Qui puoi cambiare i colori della nostra clinica. Quale ti ispira di più oggi per studiare?" - Todo.ai</p>
-               </section>
-               
-               <button onClick={() => setView('dashboard')} className={`w-full py-6 ${themeClasses.bg} text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95 transition-all`}>Torna alla Dashboard 🐾</button>
+                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${badges2.length === subj2.length ? 'border-blue-400 bg-gradient-to-br from-blue-50 to-indigo-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
+                    <div className="absolute -bottom-10 -right-10 opacity-10 text-9xl">🥈</div>
+                    <span className="text-6xl drop-shadow-lg">🥈</span>
+                    <h4 className="text-2xl font-black italic text-blue-900 leading-none">Esame Finale</h4>
+                    <div className="space-y-2 relative z-10">
+                       <div className="flex justify-between text-[10px] font-black text-blue-800 uppercase tracking-widest"><span>Badge Moduli</span> <span>{badges2.length}/{subj2.length}</span></div>
+                       <div className="h-4 bg-white/50 rounded-full overflow-hidden shadow-inner border border-blue-200/50"><div className="h-full bg-blue-500 transition-all duration-1000" style={{width: `${(badges2.length/subj2.length)*100}%`}}></div></div>
+                    </div>
+                    <button disabled={isGenerating} onClick={() => setShowGeneralTestModal('F')} className={`w-full py-6 rounded-[2rem] font-black text-sm uppercase shadow-xl transition-all relative z-10 ${examFinalPassed ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>{examFinalPassed ? "COMPLETATO ✅" : "AVVIA (100 Q.)"}</button>
+                  </div>
+
+                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col items-center text-center gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${isFinalUnlocked ? 'border-emerald-400 bg-gradient-to-br from-emerald-50 to-teal-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
+                    <div className="absolute -bottom-10 -right-10 opacity-10 text-9xl">🏆</div>
+                    <span className={`text-7xl drop-shadow-2xl ${isFinalUnlocked ? 'animate-bounce' : ''}`}>🏆</span>
+                    <h4 className="text-2xl font-black italic text-emerald-900 h-10 flex items-center justify-center">Diploma Abivet</h4>
+                    <button disabled={!isFinalUnlocked} onClick={() => setShowDiplomaCongrats(true)} className={`w-full py-7 rounded-[2rem] font-black text-lg uppercase shadow-2xl relative z-10 transition-all ${isFinalUnlocked ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-300 text-white'}`}>RITIRA DIPLOMA</button>
+                  </div>
+               </div>
             </div>
+
+            {/* Laboratorio AI */}
+            <section className="bg-gradient-to-br from-slate-900 via-gray-950 to-slate-900 p-8 md:p-14 rounded-[4.5rem] text-white space-y-10 relative overflow-hidden border-t-8 border-[#5c871c] shadow-2xl">
+               <div className="absolute inset-0 opacity-[0.05] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+               <div className="flex items-center gap-5 relative z-10">
+                  <div className="w-4 h-4 bg-[#5c871c] rounded-full animate-ping"></div>
+                  <div><h3 className="text-3xl md:text-4xl font-black italic tracking-tighter">🧪 Laboratorio Analisi AI</h3><p className="text-[10px] font-black text-[#5c871c] uppercase tracking-[0.5em]">Standard Abivet Clinical Protocol</p></div>
+               </div>
+               <div className="flex flex-col sm:flex-row gap-6 relative z-10">
+                  <div className="flex-1 relative group">
+                    <select 
+                      value={selectedLabSubject} 
+                      onChange={(e) => setSelectedLabSubject(e.target.value)} 
+                      className="w-full bg-white/5 border-2 border-white/10 p-7 rounded-[2.5rem] font-bold text-lg outline-none backdrop-blur-md focus:border-[#5c871c] transition-all hover:bg-white/10 cursor-pointer shadow-inner appearance-none relative z-10"
+                    >
+                      {allSubj.map(s => <option key={s} value={s} className="bg-gray-950 text-white">{s}</option>)}
+                    </select>
+                    {/* Singola Freccia Custom - Estetica Abivet */}
+                    <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none text-[#5c871c] text-xl z-20 group-hover:scale-125 transition-transform">▼</div>
+                  </div>
+                  <button disabled={isGenerating} onClick={() => generateLaboratoryItems(selectedLabSubject)} className={`px-16 py-7 rounded-[2.5rem] font-black uppercase tracking-widest shadow-[0_0_40px_rgba(92,135,28,0.4)] transition-all active:scale-95 ${isGenerating ? 'bg-gray-800 text-gray-500' : 'bg-[#5c871c] text-white hover:bg-[#6fab1c]'}`}>
+                    {isGenerating ? "ANALISI..." : "GENERA 🦴"}
+                  </button>
+               </div>
+               {isGenerating && (
+                 <div className="space-y-6 animate-fadeIn relative z-10">
+                    <div className="flex justify-between text-[11px] font-black text-[#5c871c] uppercase tracking-widest italic animate-pulse"><span>{loadMsg}</span> <span>{genProgress}%</span></div>
+                    <div className="h-5 bg-white/5 rounded-full overflow-hidden p-1 border border-white/5 shadow-inner"><div className="h-full bg-[#5c871c] rounded-full transition-all duration-300 shadow-[0_0_20px_#5c871c]" style={{width: `${genProgress}%`}}></div></div>
+                 </div>
+               )}
+            </section>
           </div>
         )}
 
-        {view === 'badges' && (
-          <div className="max-w-6xl mx-auto space-y-12 animate-fadeIn pb-16">
-            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter leading-none">Bacheca Specialista</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-               {allSubj.map(s => {
-                 const b = badges.find(x => x.subject === s);
-                 return (
-                   <div key={s} className={`p-10 rounded-[3.5rem] border-2 transition-all flex flex-col items-center text-center gap-6 ${b ? 'bg-white border-emerald-100 shadow-xl' : 'bg-gray-50 border-gray-100 opacity-40 grayscale'}`}>
-                      <span className="text-6xl">{SUBJECT_ICONS[s]}</span>
-                      <p className="text-sm font-black text-gray-900 leading-tight h-10 flex items-center">{s}</p>
-                      {b ? <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">CONQUISTATO 🦴</span> : <span className="text-[9px] font-black text-gray-300 uppercase tracking-widest">OBIETTIVO 80%</span>}
-                   </div>
-                 );
-               })}
-            </div>
-          </div>
-        )}
-
+        {/* Quiz Session View */}
         {view === 'quiz_session' && currentSessionQuiz[currentIdx] && (
-          <div className="max-w-4xl mx-auto py-12 space-y-12 animate-fadeIn pb-40 px-2">
-            <div className="flex justify-between items-center px-10">
-              <h2 className="text-2xl font-black text-gray-900 italic leading-none">{activeSubject}</h2>
-              <button onClick={() => setView('dashboard')} className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Abbandona</button>
-            </div>
-            
-            <div className="bg-white p-12 md:p-16 rounded-[4.5rem] border border-gray-100 shadow-xl space-y-12">
-               <p className="text-3xl md:text-4xl font-black text-gray-900 leading-tight italic tracking-tighter">{currentSessionQuiz[currentIdx].question}</p>
-               <div className="grid grid-cols-1 gap-4">
+          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn pb-40 px-2">
+            <div className="bg-white p-8 md:p-20 rounded-[4.5rem] shadow-2xl border border-gray-100 space-y-12 text-center relative overflow-hidden">
+               <div className="absolute top-0 left-0 right-0 h-2 bg-gray-50"><div className={`${themeClasses.bg} h-full transition-all duration-500`} style={{width: `${((currentIdx + 1)/currentSessionQuiz.length)*100}%`}}></div></div>
+               <div className="flex justify-between items-center absolute top-6 left-10 right-10">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Domanda {currentIdx + 1} di {currentSessionQuiz.length}</span>
+                    {timeLeft !== null && <div className={`px-6 py-2 rounded-full font-black text-sm border-2 ${timeLeft < 300 ? 'bg-rose-50 border-rose-500 text-rose-500 animate-pulse' : 'bg-white border-gray-100 text-gray-400'}`}>⏱️ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</div>}
+               </div>
+               <div className="mt-12"><p className="text-xl md:text-3xl font-black leading-tight italic text-gray-800">{currentSessionQuiz[currentIdx].question}</p></div>
+               <div className="grid grid-cols-1 gap-4 text-left">
                   {currentSessionQuiz[currentIdx].options.map((opt, i) => (
-                    <button key={i} onClick={() => setUserSelections(v => ({...v, [currentIdx]: i}))} className={`p-7 md:p-9 rounded-[2.5rem] border-2 text-left transition-all flex items-center gap-6 ${userSelections[currentIdx] === i ? 'border-emerald-500 bg-emerald-50 shadow-md' : 'border-gray-50 bg-gray-50/20'}`}>
-                       <span className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl ${userSelections[currentIdx] === i ? 'bg-emerald-600 text-white shadow-lg' : 'bg-white text-gray-400'}`}>{String.fromCharCode(65+i)}</span>
-                       <span className={`text-base md:text-xl font-bold ${userSelections[currentIdx] === i ? 'text-emerald-900' : 'text-gray-700'}`}>{opt}</span>
+                    <button key={i} onClick={() => setUserSelections(v => ({...v, [currentIdx]: i}))} className={`p-5 md:p-7 rounded-[2rem] border-2 flex items-center gap-6 transition-all ${userSelections[currentIdx] === i ? 'border-[#5c871c] bg-[#f4f7ed] shadow-lg scale-[1.01]' : 'border-gray-50 bg-gray-50/50 hover:bg-gray-100 active:scale-95'}`}>
+                       <span className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${userSelections[currentIdx] === i ? themeClasses.bg + ' text-white shadow-lg' : 'bg-white text-gray-300 border'}`}>{String.fromCharCode(65+i)}</span>
+                       <span className="text-xs md:text-base font-bold text-gray-700 flex-1">{opt}</span>
                     </button>
                   ))}
                </div>
             </div>
-
             <div className="flex justify-between items-center px-6">
-               <button disabled={currentIdx === 0} onClick={() => setCurrentIdx(p => p - 1)} className={`px-12 py-6 rounded-[2rem] font-black text-xs uppercase tracking-widest transition-all ${currentIdx === 0 ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-900 text-white hover:bg-black shadow-xl active:scale-95'}`}>← Indietro</button>
+               <button disabled={currentIdx === 0} onClick={() => setCurrentIdx(p => p - 1)} className="px-10 py-5 bg-gray-900 text-white rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-30">← Indietro</button>
                {currentIdx < currentSessionQuiz.length - 1 ? (
-                 <button onClick={() => setCurrentIdx(p => p + 1)} className="px-12 py-6 bg-emerald-600 text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-xl active:scale-95">Successiva →</button>
+                 <button onClick={() => setCurrentIdx(p => p + 1)} className={`px-10 py-5 ${themeClasses.bg} text-white rounded-[2rem] font-black uppercase shadow-xl hover:bg-[#6fab1c] transition-all active:scale-95`}>Avanti →</button>
                ) : (
-                 <button onClick={confirmQuiz} className="px-14 py-6 bg-amber-500 text-white rounded-[2rem] font-black text-xs uppercase tracking-widest shadow-2xl shadow-amber-200 animate-pulse">🦴 CONFERMA ESAME 🐾</button>
+                 <button onClick={handleCompleteQuiz} className="px-14 py-6 bg-amber-500 text-white rounded-[2rem] font-black uppercase shadow-2xl animate-pulse hover:bg-amber-600 transition-all active:scale-95">REFERTO 🦴</button>
                )}
             </div>
-
-            <div className="px-12 flex flex-col gap-3">
-               <div className="flex justify-between text-[11px] font-black text-gray-400 uppercase tracking-[0.3em]">
-                  <span>Progresso Esame</span>
-                  <span>{currentIdx + 1} / {currentSessionQuiz.length}</span>
-               </div>
-               <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden p-0.5">
-                  <div className={`${themeClasses.bg} h-full transition-all duration-300 rounded-full`} style={{width: `${((currentIdx + 1)/currentSessionQuiz.length)*100}%`}}></div>
-               </div>
-            </div>
           </div>
         )}
 
-        {view === 'session' && currentSessionCards[currentIdx] && (
-          <div className="max-w-4xl mx-auto py-12 space-y-12 animate-fadeIn pb-40 px-2">
-            <div className="flex justify-between items-center px-10">
-              <h2 className="text-2xl font-black text-gray-900 italic leading-none">{activeSubject}</h2>
-              <button onClick={() => setView('dashboard')} className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Abbandona</button>
-            </div>
-            
-            <FlashcardItem 
-              card={currentSessionCards[currentIdx]} 
-              onGrade={handleFlashcardGrade}
-            />
-
-            <div className="px-12 flex flex-col gap-3">
-               <div className="flex justify-between text-[11px] font-black text-gray-400 uppercase tracking-[0.3em]">
-                  <span>Progresso Studio</span>
-                  <span>{currentIdx + 1} / {currentSessionCards.length}</span>
-               </div>
-               <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden p-0.5">
-                  <div className={`${themeClasses.bg} h-full transition-all duration-300 rounded-full`} style={{width: `${((currentIdx + 1)/currentSessionCards.length)*100}%`}}></div>
-               </div>
-            </div>
-          </div>
-        )}
-
+        {/* Review View */}
         {view === 'review' && lastSessionResult && (
-          <div className="max-w-4xl mx-auto space-y-14 animate-fadeIn py-12 px-2 pb-48">
-            <header className="text-center space-y-10">
-              <div className={`w-44 h-44 md:w-56 md:h-56 rounded-[5rem] mx-auto flex flex-col items-center justify-center font-black ${lastSessionResult.accuracy >= 60 ? themeClasses.bg + ' text-white shadow-3xl' : 'bg-rose-500 text-white shadow-3xl shadow-rose-200'}`}>
-                <span className="text-7xl md:text-8xl">{Math.round(lastSessionResult.accuracy)}%</span>
-                <span className="text-[11px] uppercase opacity-70 mt-3 tracking-widest font-black">Successo</span>
-              </div>
-              <h2 className="text-4xl md:text-5xl font-black text-gray-900 italic tracking-tighter">Referto per Alice 🐾</h2>
-              <div className="flex justify-center gap-5">
-                 <button onClick={() => setView('dashboard')} className="px-14 py-6 bg-gray-900 text-white rounded-[2.5rem] font-black text-xs uppercase shadow-xl">HOME</button>
-                 <button onClick={() => setView('study')} className={`px-14 py-6 ${themeClasses.bg} text-white rounded-[2.5rem] font-black text-xs uppercase shadow-xl`}>LIBRERIA</button>
-              </div>
-            </header>
-            
-            <div className="space-y-12">
-              {lastSessionResult.details?.map((item, idx) => {
-                const aiTitle = AI_FEEDBACK_TITLES[Math.floor(Math.random() * AI_FEEDBACK_TITLES.length)];
-                return (
-                  <div key={idx} className={`p-12 md:p-16 rounded-[4.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-emerald-100 shadow-xl' : 'border-rose-100 shadow-xl'} relative`}>
-                    <p className="text-2xl md:text-3xl font-black text-gray-900 mb-12 leading-tight italic tracking-tight">{item.q.question}</p>
-                    <div className="space-y-4 mb-14">
-                       {item.q.options.map((opt: string, i: number) => (
-                         <div key={i} className={`p-6 rounded-[1.5rem] text-sm md:text-base font-bold flex items-center gap-6 ${i === item.q.correctIndex ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : i === item.selected ? 'bg-rose-50 text-rose-800 border border-rose-100' : 'bg-gray-50 text-gray-400 opacity-60'}`}>
-                           <span className="w-10 h-10 rounded-2xl bg-white/50 flex items-center justify-center font-black text-lg shadow-sm">{String.fromCharCode(65+i)}</span>
-                           {opt}
-                         </div>
-                       ))}
-                    </div>
-                    <div className={`${item.selected === item.q.correctIndex ? 'bg-emerald-50/50' : 'bg-rose-50/50'} p-10 rounded-[3.5rem] border border-gray-100 shadow-inner italic text-sm md:text-base text-gray-700 leading-relaxed`}>
-                      <p className={`text-[10px] font-black uppercase tracking-[0.4em] mb-4 ${item.selected === item.q.correctIndex ? 'text-emerald-600' : 'text-rose-600'}`}>{aiTitle}</p>
-                      {item.q.explanation}
-                    </div>
-                  </div>
-                );
+          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
+             <div className="text-center space-y-6">
+                <div className={`w-44 h-44 rounded-full mx-auto flex flex-col items-center justify-center font-black text-white text-5xl ${lastSessionResult.accuracy >= 60 ? themeClasses.bg : 'bg-rose-500'} shadow-[0_20px_50px_rgba(0,0,0,0.1)] border-8 border-white animate-fadeIn`}>{Math.round(lastSessionResult.accuracy)}%</div>
+                <div className="space-y-2">
+                    <h2 className="text-4xl font-black italic">Referto Clinico 🐾</h2>
+                    <p className="text-3xl font-black text-[#5c871c] italic">Indovinate: {lastSessionResult.correctAnswers} / {lastSessionResult.totalCards}</p>
+                    {lastSessionResult.subject.startsWith('Esame') && (
+                        <div className="space-y-1 mt-2">
+                            <p className="text-lg font-black text-gray-400 uppercase tracking-widest">Punteggio Abivet: {lastSessionResult.points?.toFixed(2)} pts</p>
+                            <p className="text-[10px] font-bold text-gray-300">Soglia Diploma: 60%</p>
+                        </div>
+                    )}
+                </div>
+                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Torna alla Dashboard</button>
+             </div>
+             <div className="space-y-8">
+                 {lastSessionResult.details?.map((item, idx) => (
+                   <div key={idx} className={`p-10 rounded-[3.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-[#5c871c]/10 shadow-sm' : 'border-rose-100 shadow-xl shadow-rose-50'} space-y-8`}>
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1 space-y-2"><span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Domanda {idx + 1} ({item.q.subject})</span><p className="text-2xl font-black italic leading-tight text-gray-800">{item.q.question}</p></div>
+                        {item.selected === item.q.correctIndex ? <span className="text-[#5c871c] text-3xl">✓</span> : <span className="text-rose-500 text-3xl">✕</span>}
+                      </div>
+                      <div className="space-y-4">
+                         {item.q.options.map((opt: any, i: number) => (
+                           <div key={i} className={`p-6 rounded-[2rem] flex items-center gap-4 font-bold border transition-colors ${i === item.q.correctIndex ? 'bg-[#f4f7ed] border-[#5c871c]/30 text-[#5c871c]' : i === item.selected ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
+                             <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${i === item.q.correctIndex ? themeClasses.bg + ' text-white shadow-md' : i === item.selected ? 'bg-rose-600 text-white shadow-md' : 'bg-white text-gray-300'}`}>{String.fromCharCode(65+i)}</span> {opt}
+                           </div>
+                         ))}
+                      </div>
+                      <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10">
+                         <p className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] mb-3 flex items-center gap-2">🐶 {AI_FEEDBACK_TITLES[idx % 4]}</p>
+                         <p className="italic text-sm text-gray-700 leading-relaxed font-medium">{item.q.explanation}</p>
+                      </div>
+                   </div>
+                 ))}
+             </div>
+          </div>
+        )}
+
+        {/* Altre Viste (Libreria, Badge, Agenda, Sessione Card) */}
+        {view === 'study' && (
+          <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 animate-fadeIn pb-24 px-2">
+            {allSubj.map(s => {
+              const cardsCount = cards.filter(c => c.subject === s).length;
+              const quizCount = quizDB.filter(q => q.subject === s).length;
+              return (
+                <div key={s} className="bg-white p-10 rounded-[3.5rem] border border-gray-100 shadow-sm flex flex-col gap-10 hover:shadow-2xl transition-all group hover:scale-[1.02]">
+                   <div className="flex justify-between items-start"><h4 className="text-2xl font-black leading-tight flex-1 italic text-gray-800">{s}</h4><span className="text-5xl group-hover:scale-110 transition-transform">{SUBJECT_ICONS[s]}</span></div>
+                   <div className="grid grid-cols-2 gap-4 mt-auto">
+                     <button onClick={() => startFlashcardSession(s)} className={`py-5 rounded-[1.5rem] text-[11px] font-black uppercase transition-all active:scale-95 ${cardsCount > 0 ? themeClasses.bg + ' text-white shadow-md hover:bg-[#6fab1c]' : 'bg-gray-100 text-gray-400'}`}>Cards ({cardsCount})</button>
+                     <button onClick={() => startQuizSession(s)} className={`py-5 rounded-[1.5rem] text-[11px] font-black uppercase transition-all active:scale-95 ${quizCount > 0 ? 'bg-gray-900 text-white shadow-md hover:bg-black' : 'bg-gray-100 text-gray-400'}`}>Quiz ({quizCount})</button>
+                   </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {view === 'badges' && (
+          <div className="max-w-6xl mx-auto space-y-12 animate-fadeIn pb-20 px-2">
+            <div className="text-center md:text-left space-y-4">
+               <h2 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-800">Bacheca d'Eccellenza 🏆</h2>
+               <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/20 inline-block shadow-sm">
+                  <p className="text-[#5c871c] font-black uppercase tracking-widest text-[11px] mb-2 flex items-center gap-2">🐶 Istruzioni di Todo:</p>
+                  <p className="text-gray-600 font-bold italic text-sm">"Ottieni almeno l'80% di precisione in un quiz modulo per sbloccare il suo badge clinico Alice!"</p>
+               </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+              {allSubj.map(s => {
+                 const b = badges.find(x => x.subject === s);
+                 return (
+                   <div key={s} className={`p-8 rounded-[3rem] border-2 flex flex-col items-center gap-4 transition-all relative group shadow-sm hover:shadow-xl ${b ? 'bg-white border-[#5c871c]/10 shadow-lg scale-105' : 'bg-gray-100 border-gray-100 opacity-20 grayscale'}`}>
+                      <span className={`text-5xl ${b ? 'animate-pulse' : ''}`}>{SUBJECT_ICONS[s]}</span>
+                      <p className="text-[9px] font-black text-center uppercase text-gray-600 tracking-tight leading-none h-6 flex items-center">{s}</p>
+                      {b && <div className="absolute -top-3 -right-3 w-8 h-8 bg-[#5c871c] text-white rounded-full flex items-center justify-center text-xs shadow-lg font-black italic">✓</div>}
+                   </div>
+                 );
               })}
             </div>
           </div>
         )}
 
-        {view === 'calendar' && (
-          <div className="max-w-4xl mx-auto space-y-10 animate-fadeIn">
-            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter">Agenda Abivet</h2>
-            <StudyCalendar 
-              reminders={reminders} history={history} badges={badges}
-              onAddReminder={(r) => setReminders(prev => [...prev, { ...r, id: Math.random().toString() }])}
-              onDeleteReminder={(id) => setReminders(prev => prev.filter(r => r.id !== id))}
-              onToggleReminder={(id) => setReminders(prev => prev.map(r => r.id === id ? { ...r, completed: !r.completed } : r))}
-            />
-          </div>
-        )}
+        {view === 'calendar' && <div className="max-w-5xl mx-auto animate-fadeIn pb-32"><StudyCalendar reminders={reminders} history={history} badges={badges} onAddReminder={(r) => setReminders(p => [...p, {...r, id: Math.random().toString(36).substr(2, 9)}])} onDeleteReminder={(id) => setReminders(p => p.filter(x => x.id !== id))} onToggleReminder={(id) => setReminders(p => p.map(x => x.id === id ? {...x, completed: !x.completed} : x))} /></div>}
 
-        {view === 'study' && (
-          <div className="max-w-6xl mx-auto space-y-12 animate-fadeIn pb-16">
-            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter leading-none">Libreria Moduli</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
-               {allSubj.map(s => {
-                 const cardCount = cards.filter(c => c.subject === s).length;
-                 const quizCount = quizDB.filter(q => q.subject === s).length;
-                 const b = badges.find(x => x.subject === s);
-                 return (
-                   <div key={s} className={`p-10 rounded-[4rem] border-2 transition-all flex flex-col gap-10 shadow-sm hover:shadow-2xl bg-white ${themeClasses.border} border-opacity-10 hover:border-opacity-100`}>
-                      <div className="flex justify-between items-start">
-                        <p className="text-2xl font-black leading-tight flex-1 pr-6">{s}</p>
-                        <span className="text-5xl">{SUBJECT_ICONS[s] || "📁"}</span>
-                      </div>
-                      <div className="mt-auto space-y-6">
-                        <div className="flex justify-between items-center border-t pt-6">
-                           <span className="text-xs font-black text-gray-400 uppercase tracking-widest">{cardCount + quizCount} Contenuti</span>
-                           {b && <span className="text-[10px] font-black text-emerald-500 uppercase">Expert 🦴</span>}
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <button onClick={() => startFlashcardSession(s)} className={`py-4 rounded-[2rem] text-[10px] font-black uppercase tracking-widest ${cardCount > 0 ? themeClasses.bg + ' text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}>Cards</button>
-                          <button onClick={() => startQuizSession(s)} className={`py-4 rounded-[2rem] text-[10px] font-black uppercase tracking-widest ${quizCount > 0 ? 'bg-gray-900 text-white shadow-lg' : 'bg-gray-100 text-gray-400'}`}>Quiz</button>
-                        </div>
-                      </div>
-                   </div>
-                 );
-               })}
-            </div>
+        {view === 'session' && currentSessionCards[currentIdx] && (
+          <div className="max-w-4xl mx-auto py-12 animate-fadeIn space-y-12 px-2 pb-32">
+            <FlashcardItem key={currentSessionCards[currentIdx].id} card={currentSessionCards[currentIdx]} onGrade={(correct) => {
+               const newCorrect = correct ? correctCount + 1 : correctCount;
+               setCorrectCount(newCorrect);
+               if (currentIdx < currentSessionCards.length - 1) setCurrentIdx(p => p + 1);
+               else {
+                  const acc = (newCorrect / currentSessionCards.length) * 100;
+                  const res: TestResult = { id: Math.random().toString(), date: Date.now(), subject: activeSubject, type: 'Flashcard', totalCards: currentSessionCards.length, correctAnswers: newCorrect, accuracy: acc };
+                  setHistory(prev => [res, ...prev]); setLastSessionResult(res); setView('review');
+               }
+            }} />
           </div>
         )}
 
         {view === 'history' && (
-          <div className="max-w-5xl mx-auto space-y-10 animate-fadeIn">
-            <h2 className="text-5xl font-black text-gray-900 italic tracking-tighter">Registro Referti</h2>
-            <div className="bg-white rounded-[4rem] border border-gray-100 shadow-sm overflow-hidden">
-               <div className="overflow-x-auto">
-                 <table className="w-full text-left min-w-[600px]">
-                    <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                       <tr><th className="px-12 py-10">Data</th><th className="px-12 py-10">Soggetto</th><th className="px-12 py-10 text-right">Esito</th></tr>
-                    </thead>
-                    <tbody className="divide-y text-xs font-bold">
-                       {history.map(res => (
-                         <tr key={res.id} onClick={() => { setLastSessionResult(res); setView('review'); }} className="hover:bg-gray-50 cursor-pointer transition-colors group">
-                            <td className="px-12 py-8 text-gray-400">{new Date(res.date).toLocaleDateString()}</td>
-                            <td className="px-12 py-8 text-gray-900 group-hover:text-emerald-600 transition-colors text-sm font-black">{res.subject} ({res.type})</td>
-                            <td className={`px-12 py-8 text-right text-3xl font-black ${res.accuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{Math.round(res.accuracy)}%</td>
-                         </tr>
-                       ))}
-                    </tbody>
-                 </table>
-               </div>
-            </div>
+          <div className="max-w-5xl mx-auto space-y-12 animate-fadeIn pb-20 px-2">
+             <div className="text-center md:text-left space-y-2">
+                <h2 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-800">Registro Analisi Cliniche 🩺</h2>
+                <p className="text-[11px] font-black uppercase text-gray-400 tracking-widest">Archivio storico referti Alice</p>
+             </div>
+             <div className="hidden md:block bg-white rounded-[4rem] border border-gray-100 shadow-sm overflow-hidden">
+                <table className="w-full text-left">
+                   <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      <tr className="border-b"><th className="px-12 py-10">Data</th><th className="px-12 py-10">Modulo / Unità</th><th className="px-12 py-10 text-right">Esito</th></tr>
+                   </thead>
+                   <tbody className="divide-y text-xs font-bold">
+                      {history.map(h => (
+                        <tr key={h.id} onClick={() => { setLastSessionResult(h); setView('review'); }} className="hover:bg-gray-50 cursor-pointer transition-colors group">
+                           <td className="px-12 py-10 text-gray-400 font-medium">{new Date(h.date).toLocaleDateString('it-IT', { day:'2-digit', month:'long', year:'numeric' })}</td>
+                           <td className="px-12 py-10 font-black text-gray-900 text-lg italic">{h.subject} <span className="text-[10px] ml-2 opacity-30 tracking-widest uppercase">({h.type})</span></td>
+                           <td className={`px-12 py-10 text-right font-black text-4xl ${h.accuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{Math.round(h.accuracy)}%</td>
+                        </tr>
+                      ))}
+                   </tbody>
+                </table>
+             </div>
           </div>
         )}
-
       </main>
 
-      <nav className="md:hidden fixed bottom-6 left-6 right-6 bg-white/95 backdrop-blur-3xl border border-gray-100 rounded-[3rem] flex justify-around items-center p-6 z-40 shadow-2xl">
-        <button onClick={() => setView('dashboard')} className={view === 'dashboard' ? themeClasses.text : 'text-gray-300'}><ICONS.Dashboard /></button>
-        <button onClick={() => setView('study')} className={view === 'study' ? themeClasses.text : 'text-gray-300'}><ICONS.Study /></button>
-        <button onClick={() => setView('badges')} className={view === 'badges' ? themeClasses.text : 'text-gray-300'}><svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></button>
-        <button onClick={() => setView('settings')} className={view === 'settings' ? themeClasses.text : 'text-gray-300'}><svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg></button>
+      {/* Mobile Nav */}
+      <nav className="md:hidden fixed bottom-6 left-4 right-4 bg-white/95 backdrop-blur-3xl border border-gray-100 rounded-[3rem] flex justify-around items-center p-5 z-40 shadow-2xl">
+        {[
+          { id: 'dashboard', icon: <ICONS.Dashboard /> },
+          { id: 'study', icon: <ICONS.Study /> },
+          { id: 'badges', icon: <ICONS.Badges /> },
+          { id: 'calendar', icon: <ICONS.Calendar /> },
+          { id: 'history', icon: <ICONS.History /> }
+        ].map(item => (
+          <button key={item.id} onClick={() => setView(item.id as AppView)} className={`p-3 rounded-2xl transition-all active:scale-75 ${view === item.id ? themeClasses.text + ' bg-[#f4f7ed] shadow-inner' : 'text-gray-300'}`}>{item.icon}</button>
+        ))}
       </nav>
 
+      {/* Esame Modal */}
       {showGeneralTestModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-2xl">
-          <div className="bg-white w-full max-w-xl rounded-[6rem] p-16 md:p-24 shadow-3xl text-center space-y-16 relative overflow-hidden">
-            <div className={`absolute top-0 left-0 w-full h-4 ${showGeneralTestModal === '1' ? 'bg-amber-400' : showGeneralTestModal === '2' ? 'bg-blue-400' : 'bg-emerald-400'}`}></div>
-            <div className="space-y-6">
-               <h4 className="text-6xl md:text-7xl font-black text-gray-900 tracking-tighter italic leading-none">
-                {showGeneralTestModal === '1' ? "ESAME PRIMO ANNO" : showGeneralTestModal === '2' ? "ESAME SECONDO ANNO" : "GRAN FINALE ABIVET"}
-               </h4>
-               <p className="text-gray-400 font-bold text-xl md:text-2xl">Alice, sei pronta? Todo e i suoi amici sono pronti a giudicare il tuo fiuto clinico!</p>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-2xl animate-fadeIn px-4">
+          <div className="bg-white w-full max-w-lg rounded-[4rem] p-12 text-center space-y-10 shadow-3xl">
+            <h4 className="text-4xl font-black italic tracking-tighter leading-none uppercase text-gray-900">PRONTA ALICE? 🐾</h4>
+            <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] space-y-2 border border-[#5c871c]/10 shadow-inner">
+                <p className="text-gray-700 font-black text-lg">{showGeneralTestModal === '1' ? 'Esame 1° Anno: 30 Q. - 30 min.' : 'Esame Finale: 100 Q. - 60 min.'}</p>
+                <p className="text-xs text-gray-400 italic font-bold tracking-widest uppercase">Protocollo d'Esame Abivet.Pro</p>
+                <p className="text-[10px] text-amber-600 font-black uppercase">Soglia Diploma: 60%</p>
             </div>
-            <div className="grid grid-cols-1 gap-6">
-              <button onClick={() => { startQuizSession('Tutto', showGeneralTestModal); setShowGeneralTestModal(null); }} className={`${showGeneralTestModal === '1' ? 'bg-amber-500' : showGeneralTestModal === '2' ? 'bg-blue-500' : 'bg-emerald-500'} text-white py-12 rounded-[3.5rem] font-black text-3xl shadow-2xl uppercase tracking-tighter`}>🦴 INIZIA 🐾</button>
-              <button onClick={() => setShowGeneralTestModal(null)} className="text-gray-400 font-black text-[10px] uppercase tracking-[0.4em]">Non ancora Alice!</button>
+            <div className="grid gap-4">
+              <button onClick={() => { startQuizSession('Tutto', showGeneralTestModal); setShowGeneralTestModal(null); }} className={`py-8 ${themeClasses.bg} text-white rounded-[2.5rem] font-black text-2xl shadow-2xl uppercase active:scale-95 transition-all hover:bg-[#6fab1c]`}>INIZIA 🦴</button>
+              <button onClick={() => setShowGeneralTestModal(null)} className="text-gray-300 font-black uppercase text-[10px] tracking-widest hover:text-gray-500 transition-colors">Annulla</button>
             </div>
           </div>
         </div>
