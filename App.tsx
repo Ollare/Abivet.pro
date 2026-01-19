@@ -240,17 +240,26 @@ const App: React.FC = () => {
       setGenProgress(p => p < 95 ? p + 2 : p);
       if (Math.random() > 0.7) setLoadMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
     }, 1200);
+
+    // Estraggo i titoli delle domande/concetti esistenti per evitare duplicati
+    const existingCards = cards.filter(c => c.subject === subject).map(c => c.question);
+    const existingQuizzes = quizDB.filter(q => q.subject === subject).map(q => q.question);
+
     try {
       const year = ABIVET_SUBJECTS[Year.First].includes(subject) ? Year.First : Year.Second;
       const [newCards, newQuiz] = await Promise.all([
-        generateFlashcards(subject, year, [], 10), // Modificato a 10
-        generateQuizQuestions(subject, year, [], 10) // Modificato a 10
+        generateFlashcards(subject, year, existingCards, 10),
+        generateQuizQuestions(subject, year, existingQuizzes, 10)
       ]);
-      // Sovrascrittura: rimuove vecchi item della stessa materia e aggiunge i nuovi
+      // Sovrascrittura: rimuove vecchi item della stessa materia e aggiunge i nuovi, mantenendo il registro storico
       setCards(prev => [...prev.filter(c => c.subject !== subject), ...newCards]);
       setQuizDB(prev => [...prev.filter(q => q.subject !== subject), ...newQuiz]);
       clearInterval(timer); setGenProgress(100); setTimeout(() => setIsGenerating(false), 800);
-    } catch (e) { clearInterval(timer); setIsGenerating(false); alert("Errore AI. Controlla API_KEY."); }
+    } catch (e) { 
+      clearInterval(timer); 
+      setIsGenerating(false); 
+      alert("Errore AI. Verifica la configurazione della chiave API_KEY nelle impostazioni."); 
+    }
   };
 
   return (

@@ -11,10 +11,11 @@ REGOLE DI GENERAZIONE:
 3. Flashcard: Formato puramente clinico (Domanda e Risposta). NON usare risposte multiple per le flashcard.
 4. Spiegazioni: OBBLIGATORIE, basate su protocolli Abivet originali.
 5. Esami Generali: Copri in modo omogeneo TUTTI i moduli forniti.
-6. Invia ESATTAMENTE il numero di domande richiesto in formato JSON valido.`;
+6. Invia ESATTAMENTE il numero di domande richiesto in formato JSON valido.
+7. EVITA domande duplicate o concetti già trattati se forniti nella lista di esclusione.`;
 
 const getAIClient = () => {
-  // Nota: l'istruzione impone l'uso di process.env.API_KEY
+  // Come da istruzioni, si deve usare esclusivamente process.env.API_KEY.
   const key = process.env.API_KEY;
   if (!key) throw new Error("API_KEY missing");
   return new GoogleGenAI({ apiKey: key });
@@ -23,12 +24,14 @@ const getAIClient = () => {
 export const generateFlashcards = async (
   subject: string,
   year: Year,
-  existingConcepts: string[] = [],
-  count: number = 10 // Ridotto a 10
+  existingQuestions: string[] = [],
+  count: number = 10
 ): Promise<Flashcard[]> => {
   const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";
-  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche (Domanda e Risposta). NON usare opzioni a scelta multipla. JSON format.`;
+  const excludeList = existingQuestions.length > 0 ? `\nNON generare domande simili a queste: ${existingQuestions.join(", ")}` : "";
+  
+  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche (Domanda e Risposta).${excludeList}\nRestituisci solo JSON.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -67,11 +70,13 @@ export const generateQuizQuestions = async (
   subject: string,
   year: Year,
   existingQuestions: string[] = [],
-  count: number = 10 // Ridotto a 10
+  count: number = 10
 ): Promise<MultipleChoiceQuestion[]> => {
   const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";
-  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} quiz (5 opzioni). JSON.`;
+  const excludeList = existingQuestions.length > 0 ? `\nNON generare quiz simili a questi: ${existingQuestions.join(", ")}` : "";
+  
+  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} quiz con 5 opzioni ciascuno.${excludeList}\nRestituisci solo JSON.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -111,7 +116,7 @@ export const generateBalancedExam = async (
 ): Promise<MultipleChoiceQuestion[]> => {
   const ai = getAIClient();
   let subjects: string[] = type === '1' ? ABIVET_SUBJECTS[Year.First] : [...ABIVET_SUBJECTS[Year.First], ...ABIVET_SUBJECTS[Year.Second]];
-  const prompt = `Genera un esame clinico Abivet di ${totalQuestions} domande (5 opzioni ciascuna). Bilancia equamente i moduli: ${subjects.join(', ')}. Restituisci JSON.`;
+  const prompt = `Genera un esame clinico Abivet bilanciato di ${totalQuestions} domande a scelta multipla (5 opzioni). Materie da coprire: ${subjects.join(', ')}. Restituisci JSON.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
