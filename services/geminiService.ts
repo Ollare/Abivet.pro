@@ -8,9 +8,10 @@ Il tuo tono è professionale, asciutto e clinico.
 REGOLE DI GENERAZIONE:
 1. Devi attenerti rigorosamente allo standard clinico Abivet.
 2. Quiz: ESATTAMENTE 5 opzioni di risposta.
-3. Spiegazioni: OBBLIGATORIE, basate su protocolli Abivet originali.
-4. Esami Generali: Copri in modo omogeneo TUTTI i moduli forniti.
-5. Invia ESATTAMENTE il numero di domande richiesto in formato JSON valido.`;
+3. Flashcard: Formato puramente clinico (Domanda e Risposta). NON usare risposte multiple per le flashcard.
+4. Spiegazioni: OBBLIGATORIE, basate su protocolli Abivet originali.
+5. Esami Generali: Copri in modo omogeneo TUTTI i moduli forniti.
+6. Invia ESATTAMENTE il numero di domande richiesto in formato JSON valido.`;
 
 const getAIClient = () => {
   const key = process.env.API_KEY;
@@ -26,7 +27,7 @@ export const generateFlashcards = async (
 ): Promise<Flashcard[]> => {
   const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";
-  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche. JSON format.`;
+  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche (Domanda e Risposta). NON usare opzioni a scelta multipla. JSON format.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',

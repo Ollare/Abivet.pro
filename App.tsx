@@ -115,7 +115,7 @@ const App: React.FC = () => {
   const examFinalPassed = history.some(h => h.subject === "Esame Finale" && h.accuracy >= 60);
   const isFinalUnlocked = badges1.length === subj1.length && badges2.length === subj2.length && exam1Passed;
 
-  // IL FIUTO DI TODO: Analisi criticità
+  // IL FIUTO DI TODO
   const todoAdvice = useMemo(() => {
     const valid = history.filter(h => h.type === 'Quiz' && h.subject !== 'Tutto');
     const uniqueModulesTested = new Set(valid.map(h => h.subject));
@@ -409,6 +409,7 @@ const App: React.FC = () => {
                </div>
                <button onClick={() => setView('study')} className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-700">Interrompi</button>
             </div>
+            {/* FlashcardItem gestisce il Flip Q&A senza risposte multiple */}
             <FlashcardItem 
               key={currentSessionCards[currentIdx].id}
               card={currentSessionCards[currentIdx]} 
@@ -434,7 +435,7 @@ const App: React.FC = () => {
 
              <div className="bg-white p-10 md:p-14 rounded-[4rem] border border-gray-100 shadow-sm space-y-10">
                 <div className="space-y-2">
-                   {/* MATERIA DI RIFERIMENTO IN PICCOLO (Come richiesto) */}
+                   {/* MATERIA DI RIFERIMENTO IN PICCOLO */}
                    <span className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] bg-[#f4f7ed] px-3 py-1 rounded-full border border-[#5c871c]/10">
                       {currentSessionQuiz[currentIdx].subject}
                    </span>
@@ -479,7 +480,7 @@ const App: React.FC = () => {
                     onClick={handleCompleteQuiz}
                     className="px-16 py-6 bg-[#5c871c] text-white rounded-3xl font-black uppercase text-lg shadow-2xl hover:bg-[#6fab1c] transition-all animate-pulse"
                   >
-                    Concludi Protocollo 🐾
+                    Concludi Test 🐾
                   </button>
                 )}
              </div>
