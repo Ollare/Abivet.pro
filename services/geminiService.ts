@@ -2,16 +2,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Flashcard, Year, MultipleChoiceQuestion, DETAILED_SUBJECTS, ABIVET_SUBJECTS } from "../types";
 
-const TODO_AI_PERSONA = `Sei Todo.AI, un Jack Russel Terrier assistente tecnico veterinario senior Abivet.
+const TODO_AI_PERSONA = `Sei Todo.AI, un assistente tecnico veterinario senior Abivet.
 Il tuo tono è professionale, asciutto e clinico.
 
 REGOLE DI GENERAZIONE:
 1. Devi attenerti rigorosamente allo standard clinico Abivet.
-2. Flashcard: Domanda e Risposta tecnica classica (NO risposta multipla). Suggerimento obbligatorio.
-3. Quiz: ESATTAMENTE 5 opzioni di risposta per ogni domanda.
-4. Ogni spiegazione deve essere profonda e basata su protocolli Abivet.
-5. Includi sempre i moduli di "Procedura infermieristiche" e "Procedura infermieristiche di base" negli esami generali.
-6. Copri in modo omogeneo TUTTI i sottoargomenti forniti.`;
+2. Quiz: ESATTAMENTE 5 opzioni di risposta.
+3. Spiegazioni: OBBLIGATORIE, basate su protocolli Abivet originali.
+4. Esami Generali: Copri in modo omogeneo TUTTI i moduli forniti.
+5. Invia ESATTAMENTE il numero di domande richiesto in formato JSON valido.`;
+
+const getAIClient = () => {
+  const key = process.env.API_KEY;
+  if (!key) throw new Error("API_KEY missing");
+  return new GoogleGenAI({ apiKey: key });
+};
 
 export const generateFlashcards = async (
   subject: string,
@@ -19,9 +24,9 @@ export const generateFlashcards = async (
   existingConcepts: string[] = [],
   count: number = 20
 ): Promise<Flashcard[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";
-  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche (Domanda/Risposta). JSON format.`;
+  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche. JSON format.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -35,9 +40,9 @@ export const generateFlashcards = async (
           type: Type.OBJECT,
           properties: {
             question: { type: Type.STRING },
-            concept: { type: Type.STRING, description: "Parola chiave o suggerimento breve." },
+            concept: { type: Type.STRING },
             answer: { type: Type.STRING },
-            explanation: { type: Type.STRING, description: "Focus tecnico Todo.AI." },
+            explanation: { type: Type.STRING },
             difficulty: { type: Type.STRING, enum: ['Facile', 'Media', 'Difficile'] },
           },
           required: ["question", "concept", "answer", "difficulty", "explanation"],
@@ -62,9 +67,9 @@ export const generateQuizQuestions = async (
   existingQuestions: string[] = [],
   count: number = 20
 ): Promise<MultipleChoiceQuestion[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";
-  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} quiz a 5 opzioni per lo standard Abivet. JSON.`;
+  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} quiz (5 opzioni). JSON.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -78,7 +83,7 @@ export const generateQuizQuestions = async (
           type: Type.OBJECT,
           properties: {
             question: { type: Type.STRING },
-            options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Deve contenere esattamente 5 opzioni." },
+            options: { type: Type.ARRAY, items: { type: Type.STRING } },
             correctIndex: { type: Type.INTEGER },
             explanation: { type: Type.STRING },
             difficulty: { type: Type.STRING, enum: ['Facile', 'Media', 'Difficile'] },
@@ -102,14 +107,9 @@ export const generateBalancedExam = async (
   type: '1' | 'F',
   totalQuestions: number
 ): Promise<MultipleChoiceQuestion[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = getAIClient();
   let subjects: string[] = type === '1' ? ABIVET_SUBJECTS[Year.First] : [...ABIVET_SUBJECTS[Year.First], ...ABIVET_SUBJECTS[Year.Second]];
-
-  const detailedMapString = subjects.map(s => `[MODULO: ${s}, TEMI: ${DETAILED_SUBJECTS[s]}]`).join('\n');
-  const prompt = `Genera un esame bilanciato di ${totalQuestions} domande standard Abivet.
-  MAPPATURA MODULI: ${detailedMapString}
-  REGOLA: Inserisci almeno 2-3 domande per OGNI modulo citato (per esame da 50 Q) o 4-5 per l'esame da 100 Q. 
-  TUTTI i quiz devono avere 5 opzioni. Restituisci JSON.`;
+  const prompt = `Genera un esame clinico Abivet di ${totalQuestions} domande (5 opzioni ciascuna). Bilancia equamente i moduli: ${subjects.join(', ')}. Restituisci JSON.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',

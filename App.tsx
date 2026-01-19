@@ -12,7 +12,10 @@ const TODO_QUOTES = [
   "Sveglia come un Jack Russell alle 6 del mattino! 🐶",
   "Un vero levriero dello studio! 🏎️",
   "Oggi la Farmacologia non ha scampo! Woof! 💊",
-  "Corriamo verso il diploma! 🎓"
+  "Corriamo verso il diploma! 🎓",
+  "Zootecnia? Un gioco da ragazzi per noi! 🐄",
+  "Karma dice che oggi sarai super produttiva! 🐈",
+  "Procedura infermieristica? Todo approva il tuo metodo! 💉"
 ];
 
 const LOADING_MESSAGES = [
@@ -20,10 +23,16 @@ const LOADING_MESSAGES = [
   "Analisi dei vetrini in corso (Karma help!)...",
   "Teo sta mettendo in ordine i protocolli clinici...",
   "Bau! Quasi pronti con il referto AI!",
-  "Sincronizzando i microchip della memoria..."
+  "Sincronizzando i microchip della memoria...",
+  "Consultando l'archivio clinico Abivet...",
+  "Preparando i reagenti per il test di laboratorio..."
 ];
 
 const AI_FEEDBACK_TITLES = ["🐾 Verdetto Todo", "🧪 Angolo Teo", "🐈 Appunti Karma", "🩺 Protocollo Todo"];
+
+const STORAGE_KEYS = {
+  CARDS: 'ab_v21_cards', QUIZ: 'ab_v21_quiz', HISTORY: 'ab_v21_history', BADGES: 'ab_v21_badges', REMINDERS: 'ab_v21_rem'
+};
 
 const themeClasses = {
   bg: 'bg-[#5c871c]',
@@ -34,14 +43,16 @@ const themeClasses = {
 };
 
 const App: React.FC = () => {
+  // Lazy State Initialization
+  const [cards, setCards] = useState<Flashcard[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEYS.CARDS) || '[]'));
+  const [quizDB, setQuizDB] = useState<MultipleChoiceQuestion[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEYS.QUIZ) || '[]'));
+  const [history, setHistory] = useState<TestResult[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) || '[]'));
+  const [badges, setBadges] = useState<Badge[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEYS.BADGES) || '[]'));
+  const [reminders, setReminders] = useState<StudyReminder[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEYS.REMINDERS) || '[]'));
+
   const [view, setView] = useState<AppView>('dashboard');
-  const [cards, setCards] = useState<Flashcard[]>([]);
-  const [quizDB, setQuizDB] = useState<MultipleChoiceQuestion[]>([]);
-  const [history, setHistory] = useState<TestResult[]>([]);
-  const [badges, setBadges] = useState<Badge[]>([]);
-  const [reminders, setReminders] = useState<StudyReminder[]>([]);
   const [showGeneralTestModal, setShowGeneralTestModal] = useState<null | '1' | 'F'>(null);
-  const [currentQuote, setCurrentQuote] = useState("");
+  const [currentQuote, setCurrentQuote] = useState(TODO_QUOTES[0]);
   
   const [selectedLabSubject, setSelectedLabSubject] = useState<string>(ABIVET_SUBJECTS[Year.First][0]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -57,11 +68,6 @@ const App: React.FC = () => {
   const [correctCount, setCorrectCount] = useState(0);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
-  const STORAGE_KEYS = {
-    CARDS: 'ab_v21_cards', QUIZ: 'ab_v21_quiz', HISTORY: 'ab_v21_history', BADGES: 'ab_v21_badges', REMINDERS: 'ab_v21_rem'
-  };
-
-  // Funzione scroll centralizzata
   const scrollToTop = useCallback(() => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     const main = document.querySelector('main');
@@ -72,46 +78,18 @@ const App: React.FC = () => {
     scrollToTop();
   }, [view, currentIdx, scrollToTop]);
 
-  // Caricamento dati persistenti con validazione
-  useEffect(() => {
-    const load = (key: string) => {
-      const data = localStorage.getItem(key);
-      try {
-        return data ? JSON.parse(data) : null;
-      } catch (e) {
-        console.error("Error parsing localStorage key:", key);
-        return null;
-      }
-    };
-
-    const savedCards = load(STORAGE_KEYS.CARDS);
-    if (savedCards) setCards(savedCards);
-
-    const savedQuiz = load(STORAGE_KEYS.QUIZ);
-    if (savedQuiz) setQuizDB(savedQuiz);
-
-    const savedHistory = load(STORAGE_KEYS.HISTORY);
-    if (savedHistory) setHistory(savedHistory);
-
-    const savedBadges = load(STORAGE_KEYS.BADGES);
-    if (savedBadges) setBadges(savedBadges);
-
-    const savedReminders = load(STORAGE_KEYS.REMINDERS);
-    if (savedReminders) setReminders(savedReminders);
-
-    refreshQuote();
+  const refreshQuote = useCallback(() => {
+    const newQuote = TODO_QUOTES[Math.floor(Math.random() * TODO_QUOTES.length)];
+    setCurrentQuote(newQuote);
   }, []);
 
-  // Salvataggio dati persistenti
-  useEffect(() => {
-    if (cards.length > 0) localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards));
-    if (quizDB.length > 0) localStorage.setItem(STORAGE_KEYS.QUIZ, JSON.stringify(quizDB));
-    localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
-    localStorage.setItem(STORAGE_KEYS.BADGES, JSON.stringify(badges));
-    localStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(reminders));
-  }, [cards, quizDB, history, badges, reminders]);
+  // Sync state with localStorage
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards)); }, [cards]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.QUIZ, JSON.stringify(quizDB)); }, [quizDB]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history)); }, [history]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.BADGES, JSON.stringify(badges)); }, [badges]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(reminders)); }, [reminders]);
 
-  // Gestione Timer
   useEffect(() => {
     if (timeLeft === null) return;
     if (timeLeft <= 0) {
@@ -137,11 +115,11 @@ const App: React.FC = () => {
   const examFinalPassed = history.some(h => h.subject === "Esame Finale" && h.accuracy >= 60);
   const isFinalUnlocked = badges1.length === subj1.length && badges2.length === subj2.length && exam1Passed;
 
+  // IL FIUTO DI TODO: Analisi criticità
   const todoAdvice = useMemo(() => {
     const valid = history.filter(h => h.type === 'Quiz' && h.subject !== 'Tutto');
     const uniqueModulesTested = new Set(valid.map(h => h.subject));
     if (uniqueModulesTested.size < 3) return { locked: true, progress: uniqueModulesTested.size };
-    
     const stats: Record<string, {acc: number, count: number}> = {};
     valid.forEach(h => {
       if (!stats[h.subject]) stats[h.subject] = { acc: 0, count: 0 };
@@ -150,10 +128,13 @@ const App: React.FC = () => {
     });
     const sorted = Object.entries(stats).sort((a,b) => (a[1].acc/a[1].count) - (b[1].acc/b[1].count));
     const worst = sorted[0];
-    return { locked: false, subject: worst[0], accuracy: Math.round(worst[1].acc / worst[1].count), isFailed: (worst[1].acc/worst[1].count) < 60 };
+    return { 
+      locked: false, 
+      subject: worst[0], 
+      accuracy: Math.round(worst[1].acc / worst[1].count), 
+      isFailed: (worst[1].acc/worst[1].count) < 60 
+    };
   }, [history]);
-
-  const refreshQuote = () => setCurrentQuote(TODO_QUOTES[Math.floor(Math.random() * TODO_QUOTES.length)]);
 
   const startQuizSession = async (s: string, type: 'Normal' | '1' | 'F' = 'Normal') => {
     let pool: MultipleChoiceQuestion[] = [];
@@ -165,20 +146,22 @@ const App: React.FC = () => {
 
     if (type === '1' || type === 'F') {
       setIsGenerating(true); setGenProgress(0);
-      setLoadMsg(`Todo sta preparando il protocollo d'esame (${count} Q.)...`);
-      const timer = setInterval(() => setGenProgress(p => p < 95 ? p + 1 : p), 600);
+      setLoadMsg(`Todo sta preparando il protocollo d'esame...`);
+      const timer = setInterval(() => {
+        setGenProgress(p => p < 98 ? p + 1 : p);
+        if (Math.random() > 0.8) setLoadMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
+      }, 700);
       try {
         pool = await generateBalancedExam(type as any, count);
         clearInterval(timer); setGenProgress(100);
       } catch(e) { 
         clearInterval(timer); setIsGenerating(false); 
-        console.error(e);
-        return alert("Errore connessione AI. Assicurati che l'API_KEY su Vercel sia corretta!"); 
+        return alert("Errore connessione AI. Assicurati che l'API_KEY sia corretta!"); 
       }
       setIsGenerating(false);
     } else {
       pool = s === 'Tutto' ? quizDB : quizDB.filter(q => q.subject === s);
-      if (pool.length === 0) return alert("Usa prima il Laboratorio AI per generare le domande di questo modulo!");
+      if (pool.length === 0) return alert("Genera prima i quiz nel Laboratorio AI!");
       pool = pool.sort(() => Math.random() - 0.5).slice(0, 10);
     }
     
@@ -188,17 +171,43 @@ const App: React.FC = () => {
     setView('quiz_session');
   };
 
+  const startFlashcardSession = (s: string) => {
+    let pool = s === 'Tutto' ? cards : cards.filter(c => c.subject === s);
+    if (pool.length === 0) return alert("Genera prima le flashcard nel Laboratorio AI!");
+    setCurrentSessionCards(pool.sort(() => Math.random() - 0.5));
+    setCurrentIdx(0);
+    setActiveSubject(s);
+    setCorrectCount(0);
+    setView('session');
+  };
+
+  const handleGradeFlashcard = (isCorrect: boolean) => {
+    const nextCorrectCount = isCorrect ? correctCount + 1 : correctCount;
+    setCorrectCount(nextCorrectCount);
+    
+    if (currentIdx < currentSessionCards.length - 1) {
+      setCurrentIdx(prev => prev + 1);
+    } else {
+      const res: TestResult = { 
+        id: Math.random().toString(36).substr(2, 9), date: Date.now(), subject: activeSubject, 
+        type: 'Flashcard', totalCards: currentSessionCards.length, 
+        correctAnswers: nextCorrectCount, accuracy: (nextCorrectCount / currentSessionCards.length) * 100
+      };
+      setHistory(prev => [res, ...prev]);
+      setLastSessionResult(res);
+      setView('review');
+    }
+  };
+
   const handleCompleteQuiz = useCallback(() => {
     let correct = 0; let wrong = 0; let unanswered = 0;
     const isExam = activeSubject.startsWith('Esame');
-    
     currentSessionQuiz.forEach((q, i) => {
       const sel = userSelections[i];
       if (sel === q.correctIndex) correct++;
       else if (sel === undefined || sel === -1) unanswered++;
       else wrong++;
     });
-
     let finalAccuracy = 0; let points = 0;
     if (isExam) {
       points = (correct * 2) - (wrong * 0.5) - (unanswered * 0.25);
@@ -207,18 +216,15 @@ const App: React.FC = () => {
     } else {
       finalAccuracy = (correct / currentSessionQuiz.length) * 100;
     }
-
     const res: TestResult = { 
       id: Math.random().toString(36).substr(2, 9), date: Date.now(), subject: activeSubject, 
-      type: isExam ? (activeSubject as any) : 'Quiz', 
-      totalCards: currentSessionQuiz.length, correctAnswers: correct, accuracy: finalAccuracy,
-      points: points, details: currentSessionQuiz.map((q, i) => ({ q, selected: userSelections[i] }))
+      type: isExam ? (activeSubject as any) : 'Quiz', totalCards: currentSessionQuiz.length, 
+      correctAnswers: correct, accuracy: finalAccuracy, points: points,
+      details: currentSessionQuiz.map((q, i) => ({ q, selected: userSelections[i] }))
     };
-
     setHistory(prev => [res, ...prev]);
     setLastSessionResult(res);
     setTimeLeft(null);
-
     if (!isExam && activeSubject !== 'Tutto' && finalAccuracy >= 80) {
       if (!badges.some(b => b.subject === activeSubject)) {
         setBadges(prev => [...prev, { id: Math.random().toString(), subject: activeSubject, icon: SUBJECT_ICONS[activeSubject] || '🏅', earnedDate: Date.now() }]);
@@ -229,53 +235,32 @@ const App: React.FC = () => {
 
   const generateLaboratoryItems = async (subject: string) => {
     if (isGenerating) return;
-    setIsGenerating(true); setGenProgress(0);
-    setLoadMsg(LOADING_MESSAGES[0]);
-    const timer = setInterval(() => {
+    setIsGenerating(true); setGenProgress(0); setLoadMsg(LOADING_MESSAGES[0]);
+    const timer = setInterval(() => { 
       setGenProgress(p => p < 95 ? p + 2 : p);
-      setLoadMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
-    }, 1000);
+      if (Math.random() > 0.7) setLoadMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
+    }, 1200);
     try {
       const year = ABIVET_SUBJECTS[Year.First].includes(subject) ? Year.First : Year.Second;
       const [newCards, newQuiz] = await Promise.all([
-        generateFlashcards(subject, year, [], 20),
-        generateQuizQuestions(subject, year, [], 20)
+        generateFlashcards(subject, year, [], 15),
+        generateQuizQuestions(subject, year, [], 15)
       ]);
-      
       setCards(prev => [...prev.filter(c => c.subject !== subject), ...newCards]);
       setQuizDB(prev => [...prev.filter(q => q.subject !== subject), ...newQuiz]);
-      
-      clearInterval(timer); setGenProgress(100);
-      setTimeout(() => setIsGenerating(false), 800);
-    } catch (e) { 
-      clearInterval(timer); setIsGenerating(false); 
-      console.error(e);
-      alert("Errore AI. Controlla l'API_KEY nelle impostazioni di Vercel."); 
-    }
-  };
-
-  const startFlashcardSession = (s: string) => {
-    const pool = s === 'Tutto' ? cards : cards.filter(c => c.subject === s);
-    if (pool.length === 0) return alert("Usa il Laboratorio AI per questo modulo!");
-    setCurrentSessionCards(pool.sort(() => Math.random() - 0.5).slice(0, 10));
-    setCurrentIdx(0); setCorrectCount(0); setActiveSubject(s); setView('session');
+      clearInterval(timer); setGenProgress(100); setTimeout(() => setIsGenerating(false), 800);
+    } catch (e) { clearInterval(timer); setIsGenerating(false); alert("Errore AI. Controlla API_KEY."); }
   };
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col md:flex-row pb-24 md:pb-0 font-['Inter']">
       <aside className="w-80 bg-white border-r border-gray-100 hidden md:flex flex-col fixed inset-y-0 z-30 shadow-sm">
         <div className="p-10 border-b border-gray-50 text-center">
-          <div onClick={refreshQuote} className={`w-20 h-20 mx-auto ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-white text-4xl shadow-2xl mb-4 cursor-pointer hover:rotate-6 transition-all active:scale-95`}>🐶</div>
+          <div onClick={refreshQuote} className={`w-20 h-20 mx-auto ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-white text-4xl shadow-2xl mb-4 cursor-pointer hover:rotate-12 transition-all active:scale-95`}>🐶</div>
           <h1 className="text-2xl font-black italic">ABIVET<span className={themeClasses.text}>.PRO</span></h1>
         </div>
         <nav className="flex-1 p-6 space-y-2">
-          {[
-            { id: 'dashboard', icon: <ICONS.Dashboard />, label: 'Dashboard' },
-            { id: 'study', icon: <ICONS.Study />, label: 'Libreria' },
-            { id: 'badges', icon: <ICONS.Badges />, label: 'Badge' },
-            { id: 'calendar', icon: <ICONS.Calendar />, label: 'Agenda' },
-            { id: 'history', icon: <ICONS.History />, label: 'Registro' }
-          ].map(item => (
+          {[{ id: 'dashboard', icon: <ICONS.Dashboard />, label: 'Dashboard' }, { id: 'study', icon: <ICONS.Study />, label: 'Libreria' }, { id: 'badges', icon: <ICONS.Badges />, label: 'Badge' }, { id: 'calendar', icon: <ICONS.Calendar />, label: 'Agenda' }, { id: 'history', icon: <ICONS.History />, label: 'Registro' }].map(item => (
             <button key={item.id} onClick={() => setView(item.id as AppView)} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-sm font-bold transition-all ${view === item.id ? themeClasses.bg + ' text-white shadow-xl' : 'text-gray-400 hover:bg-gray-50'}`}>{item.icon} {item.label}</button>
           ))}
         </nav>
@@ -286,7 +271,7 @@ const App: React.FC = () => {
           <div className="max-w-5xl mx-auto space-y-12 animate-fadeIn pb-12">
             <div className="bg-white p-8 md:p-12 rounded-[3.5rem] border border-gray-100 shadow-sm flex flex-col md:flex-row items-center gap-8 relative overflow-hidden group">
                <div onClick={refreshQuote} className={`w-28 h-28 md:w-32 md:h-32 ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-5xl md:text-6xl shadow-2xl cursor-pointer transition-all hover:scale-110 active:rotate-12`}>🐶</div>
-               <div className="flex-1 text-center md:text-left space-y-3 z-10">
+               <div onClick={refreshQuote} className="flex-1 text-center md:text-left space-y-3 z-10 cursor-pointer">
                   <h2 className="text-3xl md:text-4xl font-black italic text-gray-800">Bentornata Alice! 🐾</h2>
                   <div className={`${themeClasses.light} p-5 rounded-2xl border ${themeClasses.border} border-opacity-10 shadow-inner`}><p className={`${themeClasses.text} font-bold italic text-lg leading-relaxed`}>"{currentQuote}"</p></div>
                   <div className="flex items-center justify-center md:justify-start gap-4 pt-2">
@@ -297,6 +282,7 @@ const App: React.FC = () => {
                </div>
             </div>
 
+            {/* SEZIONE: IL FIUTO DI TODO */}
             <section className="p-1 rounded-[4rem] bg-gradient-to-br from-[#5c871c] via-[#86b533] to-[#a2d149] shadow-2xl overflow-hidden">
                <div className="bg-white m-1 p-8 md:p-14 rounded-[3.8rem] space-y-8 relative">
                   <div className="flex items-center gap-6">
@@ -309,51 +295,17 @@ const App: React.FC = () => {
                        <div className="flex-1 space-y-3">
                           <p className={`text-xl md:text-2xl font-black ${todoAdvice.isFailed ? 'text-rose-900' : 'text-[#5c871c]'}`}>Criticità: {todoAdvice.subject}</p>
                           <p className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2 text-gray-500"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Media Recente: {todoAdvice.accuracy}%</p>
-                          <p className="italic font-medium text-lg text-gray-600">"Alice, il mio fiuto indica che questo modulo è il tuo punto debole attuale!"</p>
+                          <p className="italic font-medium text-lg text-gray-600">"Alice, ripassiamo questo modulo insieme per evitare sviste cliniche!"</p>
                        </div>
                        <button onClick={() => startQuizSession(todoAdvice.subject!)} className="w-full md:w-auto px-12 py-6 bg-gray-900 text-white rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-black transition-all shadow-2xl active:scale-95">RIPETI QUIZ 🦴</button>
                     </div>
                   ) : (
                     <div className="p-10 bg-gray-50 rounded-[3rem] border-2 border-dashed border-gray-200 text-center space-y-4">
-                       <p className="text-lg font-bold text-gray-500 italic">"Completa quiz in almeno 3 moduli diversi per attivare il mio fiuto clinico! ({todoAdvice.progress}/3)"</p>
+                       <p className="text-lg font-bold text-gray-500 italic">"Completa quiz in almeno 3 moduli per attivare il mio fiuto investigativo! ({todoAdvice.progress}/3)"</p>
                     </div>
                   )}
                </div>
             </section>
-
-            <div className="bg-white p-8 md:p-16 rounded-[4.5rem] border border-gray-100 shadow-sm space-y-12">
-               <h3 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-900 text-center md:text-left">Missione Osso d'Oro 🦴</h3>
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${badges1.length === subj1.length ? 'border-amber-400 bg-gradient-to-br from-amber-50 to-orange-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
-                    <div className="absolute -bottom-10 -right-10 opacity-10 text-9xl">🥇</div>
-                    <span className="text-6xl drop-shadow-lg">🥇</span>
-                    <h4 className="text-2xl font-black italic text-amber-900 leading-none">Esame 1° Anno</h4>
-                    <div className="space-y-2 relative z-10">
-                       <div className="flex justify-between text-[10px] font-black text-amber-800 uppercase tracking-widest"><span>Badge Moduli</span> <span>{badges1.length}/{subj1.length}</span></div>
-                       <div className="h-4 bg-white/50 rounded-full overflow-hidden shadow-inner border border-amber-200/50"><div className="h-full bg-amber-500 transition-all duration-1000" style={{width: `${(badges1.length/subj1.length)*100}%`}}></div></div>
-                    </div>
-                    <button disabled={isGenerating} onClick={() => setShowGeneralTestModal('1')} className={`w-full py-6 rounded-[2rem] font-black text-sm uppercase shadow-xl transition-all relative z-10 ${exam1Passed ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>{exam1Passed ? "COMPLETATO ✅" : "AVVIA (50 Q.)"}</button>
-                  </div>
-
-                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${badges2.length === subj2.length ? 'border-blue-400 bg-gradient-to-br from-blue-50 to-indigo-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
-                    <div className="absolute -bottom-10 -right-10 opacity-10 text-9xl">🥈</div>
-                    <span className="text-6xl drop-shadow-lg">🥈</span>
-                    <h4 className="text-2xl font-black italic text-blue-900 leading-none">Esame Finale</h4>
-                    <div className="space-y-2 relative z-10">
-                       <div className="flex justify-between text-[10px] font-black text-blue-800 uppercase tracking-widest"><span>Badge Moduli</span> <span>{badges2.length}/{subj2.length}</span></div>
-                       <div className="h-4 bg-white/50 rounded-full overflow-hidden shadow-inner border border-blue-200/50"><div className="h-full bg-blue-500 transition-all duration-1000" style={{width: `${(badges2.length/subj2.length)*100}%`}}></div></div>
-                    </div>
-                    <button disabled={isGenerating} onClick={() => setShowGeneralTestModal('F')} className={`w-full py-6 rounded-[2rem] font-black text-sm uppercase shadow-xl transition-all relative z-10 ${examFinalPassed ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>{examFinalPassed ? "COMPLETATO ✅" : "AVVIA (100 Q.)"}</button>
-                  </div>
-
-                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col items-center text-center gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${isFinalUnlocked ? 'border-emerald-400 bg-gradient-to-br from-emerald-50 to-teal-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
-                    <div className="absolute -bottom-10 -right-10 opacity-10 text-9xl">🏆</div>
-                    <span className={`text-7xl drop-shadow-2xl ${isFinalUnlocked ? 'animate-bounce' : ''}`}>🏆</span>
-                    <h4 className="text-2xl font-black italic text-emerald-900 h-10 flex items-center justify-center">Diploma Abivet</h4>
-                    <button disabled={!isFinalUnlocked} onClick={() => alert("Ottieni tutti i badge e supera l'esame del 1° anno!")} className={`w-full py-7 rounded-[2rem] font-black text-lg uppercase shadow-2xl relative z-10 transition-all ${isFinalUnlocked ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-300 text-white'}`}>RITIRA DIPLOMA</button>
-                  </div>
-               </div>
-            </div>
 
             <section className="bg-gradient-to-br from-slate-900 via-gray-950 to-slate-900 p-8 md:p-14 rounded-[4.5rem] text-white space-y-10 relative overflow-hidden border-t-8 border-[#5c871c] shadow-2xl">
                <div className="absolute inset-0 opacity-[0.05] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
@@ -379,6 +331,152 @@ const App: React.FC = () => {
                  </div>
                )}
             </section>
+
+            {/* Missione Osso d'Oro */}
+            <div className="bg-white p-8 md:p-16 rounded-[4.5rem] border border-gray-100 shadow-sm space-y-12">
+               <h3 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-900 text-center md:text-left">Missione Osso d'Oro 🦴</h3>
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${badges1.length === subj1.length ? 'border-amber-400 bg-gradient-to-br from-amber-50 to-orange-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
+                    <span className="text-6xl drop-shadow-lg">🥇</span>
+                    <h4 className="text-2xl font-black italic text-amber-900 leading-none">Esame 1° Anno</h4>
+                    <div className="space-y-2 relative z-10">
+                       <div className="flex justify-between text-[10px] font-black text-amber-800 uppercase tracking-widest"><span>Badge Moduli</span> <span>{badges1.length}/{subj1.length}</span></div>
+                       <div className="h-4 bg-white/50 rounded-full overflow-hidden shadow-inner border border-amber-200/50"><div className="h-full bg-amber-500 transition-all duration-1000" style={{width: `${(badges1.length/subj1.length)*100}%`}}></div></div>
+                    </div>
+                    <button disabled={isGenerating} onClick={() => setShowGeneralTestModal('1')} className={`w-full py-6 rounded-[2rem] font-black text-sm uppercase shadow-xl transition-all relative z-10 ${exam1Passed ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>{exam1Passed ? "COMPLETATO ✅" : "AVVIA (50 Q.)"}</button>
+                  </div>
+
+                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${badges2.length === subj2.length ? 'border-blue-400 bg-gradient-to-br from-blue-50 to-indigo-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
+                    <span className="text-6xl drop-shadow-lg">🥈</span>
+                    <h4 className="text-2xl font-black italic text-blue-900 leading-none">Esame Finale</h4>
+                    <div className="space-y-2 relative z-10">
+                       <div className="flex justify-between text-[10px] font-black text-blue-800 uppercase tracking-widest"><span>Badge Moduli</span> <span>{badges2.length}/{subj2.length}</span></div>
+                       <div className="h-4 bg-white/50 rounded-full overflow-hidden shadow-inner border border-blue-200/50"><div className="h-full bg-blue-500 transition-all duration-1000" style={{width: `${(badges2.length/subj2.length)*100}%`}}></div></div>
+                    </div>
+                    <button disabled={isGenerating} onClick={() => setShowGeneralTestModal('F')} className={`w-full py-6 rounded-[2rem] font-black text-sm uppercase shadow-xl transition-all relative z-10 ${examFinalPassed ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>{examFinalPassed ? "COMPLETATO ✅" : "AVVIA (100 Q.)"}</button>
+                  </div>
+
+                  <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col items-center text-center gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${isFinalUnlocked ? 'border-emerald-400 bg-gradient-to-br from-emerald-50 to-teal-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
+                    <span className={`text-7xl drop-shadow-2xl ${isFinalUnlocked ? 'animate-bounce' : ''}`}>🏆</span>
+                    <h4 className="text-2xl font-black italic text-emerald-900 h-10 flex items-center justify-center">Diploma Abivet</h4>
+                    <button disabled={!isFinalUnlocked} className={`w-full py-7 rounded-[2rem] font-black text-lg uppercase shadow-2xl relative z-10 transition-all ${isFinalUnlocked ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-300 text-white'}`}>RITIRA DIPLOMA</button>
+                  </div>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'review' && lastSessionResult && (
+          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
+             <div className="text-center space-y-6">
+                <div className={`w-44 h-44 rounded-full mx-auto flex flex-col items-center justify-center font-black text-white text-5xl ${lastSessionResult.accuracy >= 60 ? themeClasses.bg : 'bg-rose-500'} shadow-2xl border-8 border-white animate-fadeIn`}>{Math.round(lastSessionResult.accuracy)}%</div>
+                <div className="space-y-2">
+                    <h2 className="text-4xl font-black italic">Referto Clinico 🐾</h2>
+                    <p className="text-3xl font-black text-[#5c871c] italic">Corrette: {lastSessionResult.correctAnswers} / {lastSessionResult.totalCards}</p>
+                </div>
+                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Dashboard</button>
+             </div>
+             <div className="space-y-8">
+                 {lastSessionResult.details?.map((item, idx) => (
+                   <div key={idx} className={`p-10 rounded-[3.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-[#5c871c]/10 shadow-sm' : 'border-rose-100 shadow-xl shadow-rose-50'} space-y-8`}>
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1"><span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Domanda {idx + 1} ({item.q.subject})</span><p className="text-2xl font-black italic text-gray-800">{item.q.question}</p></div>
+                        {item.selected === item.q.correctIndex ? <span className="text-[#5c871c] text-3xl">✓</span> : <span className="text-rose-500 text-3xl">✕</span>}
+                      </div>
+                      <div className="space-y-3">
+                         {item.q.options.map((opt: any, i: number) => (
+                           <div key={i} className={`p-5 rounded-[2rem] flex items-center gap-4 font-bold border transition-colors ${i === item.q.correctIndex ? 'bg-[#f4f7ed] border-[#5c871c]/30 text-[#5c871c]' : i === item.selected ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
+                             <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${i === item.q.correctIndex ? themeClasses.bg + ' text-white' : i === item.selected ? 'bg-rose-600 text-white' : 'bg-white text-gray-300'}`}>{String.fromCharCode(65+i)}</span> {opt}
+                           </div>
+                         ))}
+                      </div>
+                      <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10 italic text-sm text-gray-700">
+                         <p className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] mb-2 flex items-center gap-2">🐶 {AI_FEEDBACK_TITLES[idx % AI_FEEDBACK_TITLES.length]}</p>
+                         {item.q.explanation}
+                      </div>
+                   </div>
+                 ))}
+             </div>
+          </div>
+        )}
+
+        {view === 'session' && currentSessionCards.length > 0 && (
+          <div className="max-w-4xl mx-auto py-12 px-2 animate-fadeIn flex flex-col items-center">
+            <div className="w-full mb-12 flex justify-between items-center px-4">
+               <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Progresso Studio</span>
+                  <div className="text-2xl font-black italic">{currentIdx + 1} / {currentSessionCards.length}</div>
+               </div>
+               <button onClick={() => setView('study')} className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-700">Interrompi</button>
+            </div>
+            <FlashcardItem 
+              key={currentSessionCards[currentIdx].id}
+              card={currentSessionCards[currentIdx]} 
+              onGrade={handleGradeFlashcard} 
+            />
+          </div>
+        )}
+
+        {view === 'quiz_session' && currentSessionQuiz.length > 0 && (
+          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
+             <div className="flex justify-between items-center">
+                <div className="space-y-1">
+                   <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{activeSubject}</span>
+                   <h2 className="text-3xl font-black italic">Domanda {currentIdx + 1} / {currentSessionQuiz.length}</h2>
+                </div>
+                {timeLeft !== null && (
+                  <div className={`p-4 rounded-2xl border-2 ${timeLeft < 300 ? 'border-rose-500 text-rose-500 animate-pulse' : 'border-gray-100 text-gray-800'} font-black flex items-center gap-3 bg-white shadow-sm`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
+                  </div>
+                )}
+             </div>
+
+             <div className="bg-white p-10 md:p-14 rounded-[4rem] border border-gray-100 shadow-sm space-y-10">
+                <p className="text-2xl md:text-3xl font-black italic text-gray-800 leading-tight">
+                  {currentSessionQuiz[currentIdx].question}
+                </p>
+                
+                <div className="grid gap-4">
+                   {currentSessionQuiz[currentIdx].options.map((opt, i) => (
+                     <button 
+                       key={i} 
+                       onClick={() => setUserSelections(prev => ({...prev, [currentIdx]: i}))}
+                       className={`p-6 md:p-8 rounded-[2.5rem] border-2 text-left font-bold text-lg transition-all flex items-center gap-6 ${userSelections[currentIdx] === i ? 'bg-[#f4f7ed] border-[#5c871c] text-[#5c871c] shadow-lg scale-[1.02]' : 'bg-gray-50 border-gray-50 text-gray-500 hover:border-gray-200'}`}
+                     >
+                       <span className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${userSelections[currentIdx] === i ? 'bg-[#5c871c] text-white' : 'bg-white text-gray-300'}`}>
+                         {String.fromCharCode(65 + i)}
+                       </span>
+                       {opt}
+                     </button>
+                   ))}
+                </div>
+             </div>
+
+             <div className="flex justify-between items-center pt-8">
+                <button 
+                  disabled={currentIdx === 0} 
+                  onClick={() => setCurrentIdx(prev => prev - 1)}
+                  className="px-10 py-5 bg-gray-100 text-gray-400 rounded-2xl font-black uppercase text-sm disabled:opacity-30"
+                >
+                  Indietro
+                </button>
+                {currentIdx < currentSessionQuiz.length - 1 ? (
+                  <button 
+                    onClick={() => setCurrentIdx(prev => prev + 1)}
+                    className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase text-sm shadow-xl hover:bg-black transition-all"
+                  >
+                    Avanti
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleCompleteQuiz}
+                    className="px-16 py-6 bg-[#5c871c] text-white rounded-3xl font-black uppercase text-lg shadow-2xl hover:bg-[#6fab1c] transition-all animate-pulse"
+                  >
+                    Concludi Protocollo 🐾
+                  </button>
+                )}
+             </div>
           </div>
         )}
 
@@ -404,9 +502,9 @@ const App: React.FC = () => {
           <div className="max-w-6xl mx-auto space-y-12 animate-fadeIn pb-20 px-2">
             <div className="text-center md:text-left space-y-4">
               <h2 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-800">Bacheca d'Eccellenza 🏆</h2>
-              <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/20 inline-block shadow-sm">
-                  <p className="text-[#5c871c] font-black uppercase tracking-widest text-[11px] mb-2 flex items-center gap-2">🐶 Istruzioni di Todo:</p>
-                  <p className="text-gray-600 font-bold italic text-sm">"Alice, completa un quiz specifico per materia ottenendo almeno l'80% per sbloccare il badge clinico corrispondente. Ottenerli tutti è necessario per il Diploma!"</p>
+              <div className="p-8 bg-amber-50 rounded-[2.5rem] border border-amber-200 inline-block shadow-sm">
+                  <p className="text-amber-700 font-black uppercase tracking-widest text-[11px] mb-2 flex items-center gap-2">🦴 Istruzioni di Todo:</p>
+                  <p className="text-amber-900 font-bold italic text-sm">"Alice, ottieni almeno l'80% in un quiz specifico di modulo per sbloccare il suo badge clinico! Ottenerli tutti è necessario per il Diploma Finale."</p>
                </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
@@ -426,7 +524,14 @@ const App: React.FC = () => {
 
         {view === 'calendar' && (
           <div className="max-w-5xl mx-auto animate-fadeIn pb-32">
-            <StudyCalendar reminders={reminders} history={history} badges={badges} onAddReminder={(r) => setReminders(p => [...p, {...r, id: Math.random().toString(36).substr(2, 9)}])} onDeleteReminder={(id) => setReminders(p => p.filter(x => x.id !== id))} onToggleReminder={(id) => setReminders(p => p.map(x => x.id === id ? {...x, completed: !x.completed} : x))} />
+            <StudyCalendar 
+              reminders={reminders} 
+              history={history} 
+              badges={badges} 
+              onAddReminder={(r) => setReminders(p => [...p, {...r, id: Math.random().toString(36).substr(2, 9)}])} 
+              onDeleteReminder={(id) => setReminders(p => p.filter(x => x.id !== id))} 
+              onToggleReminder={(id) => setReminders(p => p.map(x => x.id === id ? {...x, completed: !x.completed} : x))} 
+            />
           </div>
         )}
 
@@ -436,7 +541,7 @@ const App: React.FC = () => {
              <div className="bg-white rounded-[3rem] border border-gray-100 shadow-sm overflow-hidden">
                 <table className="w-full text-left">
                    <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      <tr className="border-b"><th className="px-10 py-8">Data</th><th className="px-10 py-8">Modulo / Test</th><th className="px-10 py-8 text-right">Esito</th></tr>
+                      <tr className="border-b"><th className="px-10 py-8">Data</th><th className="px-10 py-8">Modulo</th><th className="px-10 py-8 text-right">Esito</th></tr>
                    </thead>
                    <tbody className="divide-y text-xs font-bold">
                       {history.map(h => (
@@ -446,106 +551,15 @@ const App: React.FC = () => {
                            <td className={`px-10 py-8 text-right font-black text-2xl ${h.accuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{Math.round(h.accuracy)}%</td>
                         </tr>
                       ))}
-                      {history.length === 0 && <tr><td colSpan={3} className="px-10 py-24 text-center text-gray-300 italic text-lg">Ancora nessun referto clinico Alice! 🐾</td></tr>}
                    </tbody>
                 </table>
              </div>
           </div>
         )}
-
-        {view === 'quiz_session' && currentSessionQuiz[currentIdx] && (
-          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn pb-40 px-2">
-            <div className="bg-white p-8 md:p-20 rounded-[4.5rem] shadow-2xl border border-gray-100 space-y-12 text-center relative overflow-hidden">
-               <div className="absolute top-0 left-0 right-0 h-2 bg-gray-50"><div className={`${themeClasses.bg} h-full transition-all duration-500`} style={{width: `${((currentIdx + 1)/currentSessionQuiz.length)*100}%`}}></div></div>
-               <div className="flex justify-between items-center absolute top-6 left-10 right-10">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Domanda {currentIdx + 1} di {currentSessionQuiz.length}</span>
-                    {timeLeft !== null && <div className={`px-6 py-2 rounded-full font-black text-sm border-2 ${timeLeft < 300 ? 'bg-rose-50 border-rose-500 text-rose-500 animate-pulse' : 'bg-white border-gray-100 text-gray-400'}`}>⏱️ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</div>}
-               </div>
-               <div className="mt-12 text-xl md:text-3xl font-black italic text-gray-800 leading-tight">{currentSessionQuiz[currentIdx].question}</div>
-               <div className="grid grid-cols-1 gap-4 text-left">
-                  {currentSessionQuiz[currentIdx].options.map((opt, i) => (
-                    <button key={i} onClick={() => setUserSelections(v => ({...v, [currentIdx]: i}))} className={`p-5 md:p-7 rounded-[2rem] border-2 flex items-center gap-6 transition-all ${userSelections[currentIdx] === i ? 'border-[#5c871c] bg-[#f4f7ed] shadow-lg scale-[1.01]' : 'border-gray-50 bg-gray-50/50 hover:bg-gray-100 active:scale-95'}`}>
-                       <span className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${userSelections[currentIdx] === i ? themeClasses.bg + ' text-white shadow-lg' : 'bg-white text-gray-300 border'}`}>{String.fromCharCode(65+i)}</span>
-                       <span className="text-xs md:text-base font-bold text-gray-700 flex-1">{opt}</span>
-                    </button>
-                  ))}
-               </div>
-            </div>
-            <div className="flex justify-between items-center px-6">
-               <button disabled={currentIdx === 0} onClick={() => setCurrentIdx(p => p - 1)} className="px-10 py-5 bg-gray-900 text-white rounded-[2rem] font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all disabled:opacity-30">← Indietro</button>
-               {currentIdx < currentSessionQuiz.length - 1 ? (
-                 <button onClick={() => setCurrentIdx(p => p + 1)} className={`px-10 py-5 ${themeClasses.bg} text-white rounded-[2rem] font-black uppercase shadow-xl hover:bg-[#6fab1c] transition-all active:scale-95`}>Avanti →</button>
-               ) : (
-                 <button onClick={handleCompleteQuiz} className="px-14 py-6 bg-amber-500 text-white rounded-[2rem] font-black uppercase shadow-2xl animate-pulse hover:bg-amber-600 transition-all active:scale-95">REFERTO 🦴</button>
-               )}
-            </div>
-          </div>
-        )}
-
-        {view === 'review' && lastSessionResult && (
-          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
-             <div className="text-center space-y-6">
-                <div className={`w-44 h-44 rounded-full mx-auto flex flex-col items-center justify-center font-black text-white text-5xl ${lastSessionResult.accuracy >= 60 ? themeClasses.bg : 'bg-rose-500'} shadow-2xl border-8 border-white animate-fadeIn`}>{Math.round(lastSessionResult.accuracy)}%</div>
-                <div className="space-y-2">
-                    <h2 className="text-4xl font-black italic">Referto Clinico 🐾</h2>
-                    <p className="text-3xl font-black text-[#5c871c] italic">Risposte Corrette: {lastSessionResult.correctAnswers} / {lastSessionResult.totalCards}</p>
-                    {lastSessionResult.subject.startsWith('Esame') && (
-                        <div className="space-y-1 mt-2">
-                            <p className="text-lg font-black text-gray-400 uppercase tracking-widest">Punteggio Abivet: {lastSessionResult.points?.toFixed(2)} pts</p>
-                            <p className="text-xs font-bold text-gray-300">Soglia Diploma: 60 su 100 ({Math.round(lastSessionResult.accuracy)}%)</p>
-                        </div>
-                    )}
-                </div>
-                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Torna alla Dashboard</button>
-             </div>
-             <div className="space-y-8">
-                 {lastSessionResult.details?.map((item, idx) => (
-                   <div key={idx} className={`p-10 rounded-[3.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-[#5c871c]/10 shadow-sm' : 'border-rose-100 shadow-xl shadow-rose-50'} space-y-8`}>
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1"><span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Domanda {idx + 1} ({item.q.subject})</span><p className="text-2xl font-black italic text-gray-800">{item.q.question}</p></div>
-                        {item.selected === item.q.correctIndex ? <span className="text-[#5c871c] text-3xl">✓</span> : <span className="text-rose-500 text-3xl">✕</span>}
-                      </div>
-                      <div className="space-y-3">
-                         {item.q.options.map((opt: any, i: number) => (
-                           <div key={i} className={`p-5 rounded-[2rem] flex items-center gap-4 font-bold border transition-colors ${i === item.q.correctIndex ? 'bg-[#f4f7ed] border-[#5c871c]/30 text-[#5c871c]' : i === item.selected ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
-                             <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${i === item.q.correctIndex ? themeClasses.bg + ' text-white' : i === item.selected ? 'bg-rose-600 text-white' : 'bg-white text-gray-300'}`}>{String.fromCharCode(65+i)}</span> {opt}
-                           </div>
-                         ))}
-                      </div>
-                      <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10 italic text-sm text-gray-700">
-                         <p className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] mb-2 flex items-center gap-2">🐶 {AI_FEEDBACK_TITLES[idx % 4]}</p>
-                         {item.q.explanation}
-                      </div>
-                   </div>
-                 ))}
-             </div>
-          </div>
-        )}
-
-        {view === 'session' && currentSessionCards[currentIdx] && (
-          <div className="max-w-4xl mx-auto py-12 animate-fadeIn space-y-12 px-2 pb-32">
-            <FlashcardItem key={currentSessionCards[currentIdx].id} card={currentSessionCards[currentIdx]} onGrade={(correct) => {
-               const newCorrect = correct ? correctCount + 1 : correctCount;
-               setCorrectCount(newCorrect);
-               if (currentIdx < currentSessionCards.length - 1) setCurrentIdx(p => p + 1);
-               else {
-                  const acc = (newCorrect / currentSessionCards.length) * 100;
-                  const res: TestResult = { id: Math.random().toString(36).substr(2, 9), date: Date.now(), subject: activeSubject, type: 'Flashcard', totalCards: currentSessionCards.length, correctAnswers: newCorrect, accuracy: acc };
-                  setHistory(prev => [res, ...prev]); setLastSessionResult(res); setView('review');
-               }
-            }} />
-          </div>
-        )}
       </main>
 
       <nav className="md:hidden fixed bottom-6 left-4 right-4 bg-white/95 backdrop-blur-3xl border border-gray-100 rounded-[3rem] flex justify-around items-center p-5 z-40 shadow-2xl">
-        {[
-          { id: 'dashboard', icon: <ICONS.Dashboard /> },
-          { id: 'study', icon: <ICONS.Study /> },
-          { id: 'badges', icon: <ICONS.Badges /> },
-          { id: 'calendar', icon: <ICONS.Calendar /> },
-          { id: 'history', icon: <ICONS.History /> }
-        ].map(item => (
+        {[{ id: 'dashboard', icon: <ICONS.Dashboard /> }, { id: 'study', icon: <ICONS.Study /> }, { id: 'badges', icon: <ICONS.Badges /> }, { id: 'calendar', icon: <ICONS.Calendar /> }, { id: 'history', icon: <ICONS.History /> }].map(item => (
           <button key={item.id} onClick={() => setView(item.id as AppView)} className={`p-3 rounded-2xl transition-all active:scale-75 ${view === item.id ? themeClasses.text + ' bg-[#f4f7ed] shadow-inner' : 'text-gray-300'}`}>{item.icon}</button>
         ))}
       </nav>
@@ -556,8 +570,7 @@ const App: React.FC = () => {
             <h4 className="text-4xl font-black italic tracking-tighter uppercase text-gray-900 leading-none">PRONTA ALICE? 🐾</h4>
             <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10">
                 <p className="text-gray-700 font-black text-lg">{showGeneralTestModal === '1' ? 'Esame 1° Anno: 50 Q. - 30 min.' : 'Esame Finale: 100 Q. - 60 min.'}</p>
-                <p className="text-[10px] text-amber-600 font-black uppercase tracking-widest mt-2 font-bold">Protocollo Abivet Clinical</p>
-                <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Soglia Diploma: 60 su 100</p>
+                <p className="text-[10px] text-amber-600 font-black uppercase tracking-widest mt-2 font-bold">Standard Abivet Protocol</p>
             </div>
             <div className="grid gap-4">
               <button onClick={() => { startQuizSession('Tutto', showGeneralTestModal); setShowGeneralTestModal(null); }} className={`py-8 ${themeClasses.bg} text-white rounded-[2.5rem] font-black text-2xl shadow-2xl uppercase active:scale-95 transition-all hover:bg-[#6fab1c]`}>INIZIA 🦴</button>
