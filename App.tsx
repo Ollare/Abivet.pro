@@ -433,9 +433,15 @@ const App: React.FC = () => {
              </div>
 
              <div className="bg-white p-10 md:p-14 rounded-[4rem] border border-gray-100 shadow-sm space-y-10">
-                <p className="text-2xl md:text-3xl font-black italic text-gray-800 leading-tight">
-                  {currentSessionQuiz[currentIdx].question}
-                </p>
+                <div className="space-y-2">
+                   {/* MATERIA DI RIFERIMENTO IN PICCOLO (Come richiesto) */}
+                   <span className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] bg-[#f4f7ed] px-3 py-1 rounded-full border border-[#5c871c]/10">
+                      {currentSessionQuiz[currentIdx].subject}
+                   </span>
+                   <p className="text-2xl md:text-3xl font-black italic text-gray-800 leading-tight pt-2">
+                     {currentSessionQuiz[currentIdx].question}
+                   </p>
+                </div>
                 
                 <div className="grid gap-4">
                    {currentSessionQuiz[currentIdx].options.map((opt, i) => (
