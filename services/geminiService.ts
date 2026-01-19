@@ -12,29 +12,33 @@ REGOLE DI GENERAZIONE:
 4. Spiegazioni: OBBLIGATORIE, basate su protocolli Abivet originali.
 5. Esami Generali: Copri in modo omogeneo TUTTI i moduli forniti.
 6. Invia ESATTAMENTE il numero di domande richiesto in formato JSON valido.
-7. EVITA domande duplicate o concetti già trattati se forniti nella lista di esclusione.`;
+7. DE-DUPLICAZIONE: Evita argomenti, domande o concetti presenti nella lista di esclusione fornita.`;
 
 const getAIClient = () => {
-  // Come da istruzioni, si deve usare esclusivamente process.env.API_KEY.
+  // Nota: Il sistema inietta automaticamente la chiave corretta in process.env.API_KEY
   const key = process.env.API_KEY;
-  if (!key) throw new Error("API_KEY missing");
+  if (!key) throw new Error("Chiave API non configurata nel sistema.");
   return new GoogleGenAI({ apiKey: key });
 };
+
+const MODEL_NAME = 'gemini-2.5-flash-lite';
 
 export const generateFlashcards = async (
   subject: string,
   year: Year,
-  existingQuestions: string[] = [],
+  excludeList: string[] = [],
   count: number = 10
 ): Promise<Flashcard[]> => {
   const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";
-  const excludeList = existingQuestions.length > 0 ? `\nNON generare domande simili a queste: ${existingQuestions.join(", ")}` : "";
+  const exclusionContext = excludeList.length > 0 
+    ? `\nNON REPLICARE I SEGUENTI CONCETTI: ${excludeList.join(", ")}` 
+    : "";
   
-  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche (Domanda e Risposta).${excludeList}\nRestituisci solo JSON.`;
+  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche inedite (Domanda e Risposta).${exclusionContext}\nRestituisci solo JSON.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: MODEL_NAME,
     contents: prompt,
     config: {
       systemInstruction: TODO_AI_PERSONA,
@@ -69,17 +73,19 @@ export const generateFlashcards = async (
 export const generateQuizQuestions = async (
   subject: string,
   year: Year,
-  existingQuestions: string[] = [],
+  excludeList: string[] = [],
   count: number = 10
 ): Promise<MultipleChoiceQuestion[]> => {
   const ai = getAIClient();
   const subTopics = DETAILED_SUBJECTS[subject] || "";
-  const excludeList = existingQuestions.length > 0 ? `\nNON generare quiz simili a questi: ${existingQuestions.join(", ")}` : "";
+  const exclusionContext = excludeList.length > 0 
+    ? `\nNON REPLICARE I SEGUENTI QUIZ: ${excludeList.join(", ")}` 
+    : "";
   
-  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} quiz con 5 opzioni ciascuno.${excludeList}\nRestituisci solo JSON.`;
+  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} quiz a scelta multipla (5 opzioni) inediti.${exclusionContext}\nRestituisci solo JSON.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: MODEL_NAME,
     contents: prompt,
     config: {
       systemInstruction: TODO_AI_PERSONA,
@@ -116,10 +122,10 @@ export const generateBalancedExam = async (
 ): Promise<MultipleChoiceQuestion[]> => {
   const ai = getAIClient();
   let subjects: string[] = type === '1' ? ABIVET_SUBJECTS[Year.First] : [...ABIVET_SUBJECTS[Year.First], ...ABIVET_SUBJECTS[Year.Second]];
-  const prompt = `Genera un esame clinico Abivet bilanciato di ${totalQuestions} domande a scelta multipla (5 opzioni). Materie da coprire: ${subjects.join(', ')}. Restituisci JSON.`;
+  const prompt = `Genera un esame clinico Abivet bilanciato di ${totalQuestions} domande a scelta multipla (5 opzioni). Materie: ${subjects.join(', ')}. Restituisci JSON.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: MODEL_NAME,
     contents: prompt,
     config: {
       systemInstruction: TODO_AI_PERSONA,

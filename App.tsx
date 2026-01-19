@@ -43,7 +43,6 @@ const themeClasses = {
 };
 
 const App: React.FC = () => {
-  // Lazy State Initialization
   const [cards, setCards] = useState<Flashcard[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEYS.CARDS) || '[]'));
   const [quizDB, setQuizDB] = useState<MultipleChoiceQuestion[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEYS.QUIZ) || '[]'));
   const [history, setHistory] = useState<TestResult[]>(() => JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) || '[]'));
@@ -53,7 +52,6 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('dashboard');
   const [showGeneralTestModal, setShowGeneralTestModal] = useState<null | '1' | 'F'>(null);
   const [currentQuote, setCurrentQuote] = useState(TODO_QUOTES[0]);
-  
   const [selectedLabSubject, setSelectedLabSubject] = useState<string>(ABIVET_SUBJECTS[Year.First][0]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
@@ -83,7 +81,6 @@ const App: React.FC = () => {
     setCurrentQuote(newQuote);
   }, []);
 
-  // Sync state with localStorage
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards)); }, [cards]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.QUIZ, JSON.stringify(quizDB)); }, [quizDB]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history)); }, [history]);
@@ -115,7 +112,6 @@ const App: React.FC = () => {
   const examFinalPassed = history.some(h => h.subject === "Esame Finale" && h.accuracy >= 60);
   const isFinalUnlocked = badges1.length === subj1.length && badges2.length === subj2.length && exam1Passed;
 
-  // IL FIUTO DI TODO
   const todoAdvice = useMemo(() => {
     const valid = history.filter(h => h.type === 'Quiz' && h.subject !== 'Tutto');
     const uniqueModulesTested = new Set(valid.map(h => h.subject));
@@ -136,6 +132,40 @@ const App: React.FC = () => {
     };
   }, [history]);
 
+  const handleCompleteQuiz = useCallback(() => {
+    let correct = 0; let wrong = 0; let unanswered = 0;
+    const isExam = activeSubject.startsWith('Esame');
+    currentSessionQuiz.forEach((q, i) => {
+      const sel = userSelections[i];
+      if (sel === q.correctIndex) correct++;
+      else if (sel === undefined || sel === -1) unanswered++;
+      else wrong++;
+    });
+    let finalAccuracy = 0; let points = 0;
+    if (isExam) {
+      points = (correct * 2) - (wrong * 0.5) - (unanswered * 0.25);
+      finalAccuracy = (points / (currentSessionQuiz.length * 2)) * 100;
+      if (finalAccuracy < 0) finalAccuracy = 0;
+    } else {
+      finalAccuracy = (correct / currentSessionQuiz.length) * 100;
+    }
+    const res: TestResult = { 
+      id: Math.random().toString(36).substr(2, 9), date: Date.now(), subject: activeSubject, 
+      type: isExam ? (activeSubject as any) : 'Quiz', totalCards: currentSessionQuiz.length, 
+      correctAnswers: correct, accuracy: finalAccuracy, points: points,
+      details: currentSessionQuiz.map((q, i) => ({ q, selected: userSelections[i] }))
+    };
+    setHistory(prev => [res, ...prev]);
+    setLastSessionResult(res);
+    setTimeLeft(null);
+    if (!isExam && activeSubject !== 'Tutto' && finalAccuracy >= 80) {
+      if (!badges.some(b => b.subject === activeSubject)) {
+        setBadges(prev => [...prev, { id: Math.random().toString(), subject: activeSubject, icon: SUBJECT_ICONS[activeSubject] || '🏅', earnedDate: Date.now() }]);
+      }
+    }
+    setView('review');
+  }, [activeSubject, currentSessionQuiz, userSelections, badges]);
+
   const startQuizSession = async (s: string, type: 'Normal' | '1' | 'F' = 'Normal') => {
     let pool: MultipleChoiceQuestion[] = [];
     let count = 10;
@@ -154,9 +184,12 @@ const App: React.FC = () => {
       try {
         pool = await generateBalancedExam(type as any, count);
         clearInterval(timer); setGenProgress(100);
-      } catch(e) { 
-        clearInterval(timer); setIsGenerating(false); 
-        return alert("Errore connessione AI. Assicurati che l'API_KEY sia corretta!"); 
+      } catch (e: any) { 
+        clearInterval(timer); 
+        setIsGenerating(false); 
+        console.error("Gemini error:", e);
+        alert(e?.message || "Errore AI. Verifica la chiave API nelle impostazioni."); 
+        return;
       }
       setIsGenerating(false);
     } else {
@@ -199,40 +232,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleCompleteQuiz = useCallback(() => {
-    let correct = 0; let wrong = 0; let unanswered = 0;
-    const isExam = activeSubject.startsWith('Esame');
-    currentSessionQuiz.forEach((q, i) => {
-      const sel = userSelections[i];
-      if (sel === q.correctIndex) correct++;
-      else if (sel === undefined || sel === -1) unanswered++;
-      else wrong++;
-    });
-    let finalAccuracy = 0; let points = 0;
-    if (isExam) {
-      points = (correct * 2) - (wrong * 0.5) - (unanswered * 0.25);
-      finalAccuracy = (points / (currentSessionQuiz.length * 2)) * 100;
-      if (finalAccuracy < 0) finalAccuracy = 0;
-    } else {
-      finalAccuracy = (correct / currentSessionQuiz.length) * 100;
-    }
-    const res: TestResult = { 
-      id: Math.random().toString(36).substr(2, 9), date: Date.now(), subject: activeSubject, 
-      type: isExam ? (activeSubject as any) : 'Quiz', totalCards: currentSessionQuiz.length, 
-      correctAnswers: correct, accuracy: finalAccuracy, points: points,
-      details: currentSessionQuiz.map((q, i) => ({ q, selected: userSelections[i] }))
-    };
-    setHistory(prev => [res, ...prev]);
-    setLastSessionResult(res);
-    setTimeLeft(null);
-    if (!isExam && activeSubject !== 'Tutto' && finalAccuracy >= 80) {
-      if (!badges.some(b => b.subject === activeSubject)) {
-        setBadges(prev => [...prev, { id: Math.random().toString(), subject: activeSubject, icon: SUBJECT_ICONS[activeSubject] || '🏅', earnedDate: Date.now() }]);
-      }
-    }
-    setView('review');
-  }, [activeSubject, currentSessionQuiz, userSelections, badges]);
-
   const generateLaboratoryItems = async (subject: string) => {
     if (isGenerating) return;
     setIsGenerating(true); setGenProgress(0); setLoadMsg(LOADING_MESSAGES[0]);
@@ -241,37 +240,56 @@ const App: React.FC = () => {
       if (Math.random() > 0.7) setLoadMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
     }, 1200);
 
-    // Estraggo i titoli delle domande/concetti esistenti per evitare duplicati
-    const existingCards = cards.filter(c => c.subject === subject).map(c => c.question);
-    const existingQuizzes = quizDB.filter(q => q.subject === subject).map(q => q.question);
+    const historyQuestions = history
+      .flatMap(h => h.details || [])
+      .map(detail => detail.q?.question)
+      .filter(Boolean);
+
+    const currentCards = cards.filter(c => c.subject === subject).map(c => c.question);
+    const currentQuizzes = quizDB.filter(q => q.subject === subject).map(q => q.question);
+
+    const allExcluded = Array.from(new Set([...historyQuestions, ...currentCards, ...currentQuizzes])).slice(-80);
 
     try {
       const year = ABIVET_SUBJECTS[Year.First].includes(subject) ? Year.First : Year.Second;
       const [newCards, newQuiz] = await Promise.all([
-        generateFlashcards(subject, year, existingCards, 10),
-        generateQuizQuestions(subject, year, existingQuizzes, 10)
+        generateFlashcards(subject, year, allExcluded, 10),
+        generateQuizQuestions(subject, year, allExcluded, 10)
       ]);
-      // Sovrascrittura: rimuove vecchi item della stessa materia e aggiunge i nuovi, mantenendo il registro storico
       setCards(prev => [...prev.filter(c => c.subject !== subject), ...newCards]);
       setQuizDB(prev => [...prev.filter(q => q.subject !== subject), ...newQuiz]);
       clearInterval(timer); setGenProgress(100); setTimeout(() => setIsGenerating(false), 800);
-    } catch (e) { 
+    } catch (e: any) { 
       clearInterval(timer); 
       setIsGenerating(false); 
-      alert("Errore AI. Verifica la configurazione della chiave API_KEY nelle impostazioni."); 
+      console.error("Gemini error:", e);
+      alert(e?.message || "Errore AI. Verifica la chiave API nelle impostazioni."); 
     }
   };
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col md:flex-row pb-24 md:pb-0 font-['Inter']">
+      {/* Sidebar Sidebar Desktop */}
       <aside className="w-80 bg-white border-r border-gray-100 hidden md:flex flex-col fixed inset-y-0 z-30 shadow-sm">
         <div className="p-10 border-b border-gray-50 text-center">
           <div onClick={refreshQuote} className={`w-20 h-20 mx-auto ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-white text-4xl shadow-2xl mb-4 cursor-pointer hover:rotate-12 transition-all active:scale-95`}>🐶</div>
           <h1 className="text-2xl font-black italic">ABIVET<span className={themeClasses.text}>.PRO</span></h1>
         </div>
         <nav className="flex-1 p-6 space-y-2">
-          {[{ id: 'dashboard', icon: <ICONS.Dashboard />, label: 'Dashboard' }, { id: 'study', icon: <ICONS.Study />, label: 'Libreria' }, { id: 'badges', icon: <ICONS.Badges />, label: 'Badge' }, { id: 'calendar', icon: <ICONS.Calendar />, label: 'Agenda' }, { id: 'history', icon: <ICONS.History />, label: 'Registro' }].map(item => (
-            <button key={item.id} onClick={() => setView(item.id as AppView)} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-sm font-bold transition-all ${view === item.id ? themeClasses.bg + ' text-white shadow-xl' : 'text-gray-400 hover:bg-gray-50'}`}>{item.icon} {item.label}</button>
+          {[
+            { id: 'dashboard', icon: <ICONS.Dashboard />, label: 'Dashboard' },
+            { id: 'study', icon: <ICONS.Study />, label: 'Libreria' },
+            { id: 'badges', icon: <ICONS.Badges />, label: 'Badge' },
+            { id: 'calendar', icon: <ICONS.Calendar />, label: 'Agenda' },
+            { id: 'history', icon: <ICONS.History />, label: 'Registro' }
+          ].map(item => (
+            <button 
+              key={item.id} 
+              onClick={() => setView(item.id as AppView)} 
+              className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-sm font-bold transition-all ${view === item.id ? themeClasses.bg + ' text-white shadow-xl' : 'text-gray-400 hover:bg-gray-50'}`}
+            >
+              {item.icon} {item.label}
+            </button>
           ))}
         </nav>
       </aside>
@@ -292,7 +310,7 @@ const App: React.FC = () => {
                </div>
             </div>
 
-            {/* SEZIONE: IL FIUTO DI TODO */}
+            {/* Il Fiuto di Todo */}
             <section className="p-1 rounded-[4rem] bg-gradient-to-br from-[#5c871c] via-[#86b533] to-[#a2d149] shadow-2xl overflow-hidden">
                <div className="bg-white m-1 p-8 md:p-14 rounded-[3.8rem] space-y-8 relative">
                   <div className="flex items-center gap-6">
@@ -317,6 +335,7 @@ const App: React.FC = () => {
                </div>
             </section>
 
+            {/* Laboratorio Analisi AI */}
             <section className="bg-gradient-to-br from-slate-900 via-gray-950 to-slate-900 p-8 md:p-14 rounded-[4.5rem] text-white space-y-10 relative overflow-hidden border-t-8 border-[#5c871c] shadow-2xl">
                <div className="absolute inset-0 opacity-[0.05] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
                <div className="flex items-center gap-5 relative z-10">
@@ -373,126 +392,6 @@ const App: React.FC = () => {
                   </div>
                </div>
             </div>
-          </div>
-        )}
-
-        {view === 'review' && lastSessionResult && (
-          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
-             <div className="text-center space-y-6">
-                <div className={`w-44 h-44 rounded-full mx-auto flex flex-col items-center justify-center font-black text-white text-5xl ${lastSessionResult.accuracy >= 60 ? themeClasses.bg : 'bg-rose-500'} shadow-2xl border-8 border-white animate-fadeIn`}>{Math.round(lastSessionResult.accuracy)}%</div>
-                <div className="space-y-2">
-                    <h2 className="text-4xl font-black italic">Referto Clinico 🐾</h2>
-                    <p className="text-3xl font-black text-[#5c871c] italic">Corrette: {lastSessionResult.correctAnswers} / {lastSessionResult.totalCards}</p>
-                </div>
-                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Dashboard</button>
-             </div>
-             <div className="space-y-8">
-                 {lastSessionResult.details?.map((item, idx) => (
-                   <div key={idx} className={`p-10 rounded-[3.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-[#5c871c]/10 shadow-sm' : 'border-rose-100 shadow-xl shadow-rose-50'} space-y-8`}>
-                      <div className="flex justify-between items-start gap-4">
-                        <div className="flex-1"><span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Domanda {idx + 1} ({item.q.subject})</span><p className="text-2xl font-black italic text-gray-800">{item.q.question}</p></div>
-                        {item.selected === item.q.correctIndex ? <span className="text-[#5c871c] text-3xl">✓</span> : <span className="text-rose-500 text-3xl">✕</span>}
-                      </div>
-                      <div className="space-y-3">
-                         {item.q.options.map((opt: any, i: number) => (
-                           <div key={i} className={`p-5 rounded-[2rem] flex items-center gap-4 font-bold border transition-colors ${i === item.q.correctIndex ? 'bg-[#f4f7ed] border-[#5c871c]/30 text-[#5c871c]' : i === item.selected ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
-                             <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${i === item.q.correctIndex ? themeClasses.bg + ' text-white' : i === item.selected ? 'bg-rose-600 text-white' : 'bg-white text-gray-300'}`}>{String.fromCharCode(65+i)}</span> {opt}
-                           </div>
-                         ))}
-                      </div>
-                      <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10 italic text-sm text-gray-700">
-                         <p className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] mb-2 flex items-center gap-2">🐶 {AI_FEEDBACK_TITLES[idx % AI_FEEDBACK_TITLES.length]}</p>
-                         {item.q.explanation}
-                      </div>
-                   </div>
-                 ))}
-             </div>
-          </div>
-        )}
-
-        {view === 'session' && currentSessionCards.length > 0 && (
-          <div className="max-w-4xl mx-auto py-12 px-2 animate-fadeIn flex flex-col items-center">
-            <div className="w-full mb-12 flex justify-between items-center px-4">
-               <div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Progresso Studio</span>
-                  <div className="text-2xl font-black italic">{currentIdx + 1} / {currentSessionCards.length}</div>
-               </div>
-               <button onClick={() => setView('study')} className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-700">Interrompi</button>
-            </div>
-            <FlashcardItem 
-              key={currentSessionCards[currentIdx].id}
-              card={currentSessionCards[currentIdx]} 
-              onGrade={handleGradeFlashcard} 
-            />
-          </div>
-        )}
-
-        {view === 'quiz_session' && currentSessionQuiz.length > 0 && (
-          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
-             <div className="flex justify-between items-center">
-                <div className="space-y-1">
-                   <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{activeSubject}</span>
-                   <h2 className="text-3xl font-black italic">Domanda {currentIdx + 1} / {currentSessionQuiz.length}</h2>
-                </div>
-                {timeLeft !== null && (
-                  <div className={`p-4 rounded-2xl border-2 ${timeLeft < 300 ? 'border-rose-500 text-rose-500 animate-pulse' : 'border-gray-100 text-gray-800'} font-black flex items-center gap-3 bg-white shadow-sm`}>
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
-                  </div>
-                )}
-             </div>
-
-             <div className="bg-white p-10 md:p-14 rounded-[4rem] border border-gray-100 shadow-sm space-y-10">
-                <div className="space-y-2">
-                   {/* MATERIA DI RIFERIMENTO IN PICCOLO */}
-                   <span className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] bg-[#f4f7ed] px-3 py-1 rounded-full border border-[#5c871c]/10">
-                      {currentSessionQuiz[currentIdx].subject}
-                   </span>
-                   <p className="text-2xl md:text-3xl font-black italic text-gray-800 leading-tight pt-2">
-                     {currentSessionQuiz[currentIdx].question}
-                   </p>
-                </div>
-                
-                <div className="grid gap-4">
-                   {currentSessionQuiz[currentIdx].options.map((opt, i) => (
-                     <button 
-                       key={i} 
-                       onClick={() => setUserSelections(prev => ({...prev, [currentIdx]: i}))}
-                       className={`p-6 md:p-8 rounded-[2.5rem] border-2 text-left font-bold text-lg transition-all flex items-center gap-6 ${userSelections[currentIdx] === i ? 'bg-[#f4f7ed] border-[#5c871c] text-[#5c871c] shadow-lg scale-[1.02]' : 'bg-gray-50 border-gray-50 text-gray-500 hover:border-gray-200'}`}
-                     >
-                       <span className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${userSelections[currentIdx] === i ? 'bg-[#5c871c] text-white' : 'bg-white text-gray-300'}`}>
-                         {String.fromCharCode(65 + i)}
-                       </span>
-                       {opt}
-                     </button>
-                   ))}
-                </div>
-             </div>
-
-             <div className="flex justify-between items-center pt-8">
-                <button 
-                  disabled={currentIdx === 0} 
-                  onClick={() => setCurrentIdx(prev => prev - 1)}
-                  className="px-10 py-5 bg-gray-100 text-gray-400 rounded-2xl font-black uppercase text-sm disabled:opacity-30"
-                >
-                  Indietro
-                </button>
-                {currentIdx < currentSessionQuiz.length - 1 ? (
-                  <button 
-                    onClick={() => setCurrentIdx(prev => prev + 1)}
-                    className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase text-sm shadow-xl hover:bg-black transition-all"
-                  >
-                    Avanti
-                  </button>
-                ) : (
-                  <button 
-                    onClick={handleCompleteQuiz}
-                    className="px-16 py-6 bg-[#5c871c] text-white rounded-3xl font-black uppercase text-lg shadow-2xl hover:bg-[#6fab1c] transition-all animate-pulse"
-                  >
-                    Concludi Protocollo 🐾
-                  </button>
-                )}
-             </div>
           </div>
         )}
 
@@ -572,14 +471,141 @@ const App: React.FC = () => {
              </div>
           </div>
         )}
+
+        {view === 'session' && currentSessionCards.length > 0 && (
+          <div className="max-w-4xl mx-auto py-12 px-2 animate-fadeIn flex flex-col items-center">
+            <div className="w-full mb-12 flex justify-between items-center px-4">
+               <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Progresso Studio</span>
+                  <div className="text-2xl font-black italic">{currentIdx + 1} / {currentSessionCards.length}</div>
+               </div>
+               <button onClick={() => setView('study')} className="text-[10px] font-black uppercase tracking-widest text-rose-500 hover:text-rose-700">Interrompi</button>
+            </div>
+            <FlashcardItem 
+              key={currentSessionCards[currentIdx].id}
+              card={currentSessionCards[currentIdx]} 
+              onGrade={handleGradeFlashcard} 
+            />
+          </div>
+        )}
+
+        {view === 'quiz_session' && currentSessionQuiz.length > 0 && (
+          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
+             <div className="flex justify-between items-center">
+                <div className="space-y-1">
+                   <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">{activeSubject}</span>
+                   <h2 className="text-3xl font-black italic">Domanda {currentIdx + 1} / {currentSessionQuiz.length}</h2>
+                </div>
+                {timeLeft !== null && (
+                  <div className={`p-4 rounded-2xl border-2 ${timeLeft < 300 ? 'border-rose-500 text-rose-500 animate-pulse' : 'border-gray-100 text-gray-800'} font-black flex items-center gap-3 bg-white shadow-sm`}>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
+                  </div>
+                )}
+             </div>
+
+             <div className="bg-white p-10 md:p-14 rounded-[4rem] border border-gray-100 shadow-sm space-y-10">
+                <div className="space-y-2">
+                   <span className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] bg-[#f4f7ed] px-3 py-1 rounded-full border border-[#5c871c]/10">
+                      {currentSessionQuiz[currentIdx].subject}
+                   </span>
+                   <p className="text-2xl md:text-3xl font-black italic text-gray-800 leading-tight pt-2">
+                     {currentSessionQuiz[currentIdx].question}
+                   </p>
+                </div>
+                
+                <div className="grid gap-4">
+                   {currentSessionQuiz[currentIdx].options.map((opt, i) => (
+                     <button 
+                       key={i} 
+                       onClick={() => setUserSelections(prev => ({...prev, [currentIdx]: i}))}
+                       className={`p-6 md:p-8 rounded-[2.5rem] border-2 text-left font-bold text-lg transition-all flex items-center gap-6 ${userSelections[currentIdx] === i ? 'bg-[#f4f7ed] border-[#5c871c] text-[#5c871c] shadow-lg scale-[1.02]' : 'bg-gray-50 border-gray-50 text-gray-500 hover:border-gray-200'}`}
+                     >
+                       <span className={`w-12 h-12 rounded-2xl flex items-center justify-center text-xl ${userSelections[currentIdx] === i ? 'bg-[#5c871c] text-white' : 'bg-white text-gray-300'}`}>
+                         {String.fromCharCode(65 + i)}
+                       </span>
+                       {opt}
+                     </button>
+                   ))}
+                </div>
+             </div>
+
+             <div className="flex justify-between items-center pt-8">
+                <button 
+                  disabled={currentIdx === 0} 
+                  onClick={() => setCurrentIdx(prev => prev - 1)}
+                  className="px-10 py-5 bg-gray-100 text-gray-400 rounded-2xl font-black uppercase text-sm disabled:opacity-30"
+                >
+                  Indietro
+                </button>
+                {currentIdx < currentSessionQuiz.length - 1 ? (
+                  <button 
+                    onClick={() => setCurrentIdx(prev => prev + 1)}
+                    className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase text-sm shadow-xl hover:bg-black transition-all"
+                  >
+                    Avanti
+                  </button>
+                ) : (
+                  <button 
+                    onClick={handleCompleteQuiz}
+                    className="px-16 py-6 bg-[#5c871c] text-white rounded-3xl font-black uppercase text-lg shadow-2xl hover:bg-[#6fab1c] transition-all animate-pulse"
+                  >
+                    Concludi Protocollo 🐾
+                  </button>
+                )}
+             </div>
+          </div>
+        )}
+
+        {view === 'review' && lastSessionResult && (
+          <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
+             <div className="text-center space-y-6">
+                <div className={`w-44 h-44 rounded-full mx-auto flex flex-col items-center justify-center font-black text-white text-5xl ${lastSessionResult.accuracy >= 60 ? themeClasses.bg : 'bg-rose-500'} shadow-2xl border-8 border-white animate-fadeIn`}>{Math.round(lastSessionResult.accuracy)}%</div>
+                <div className="space-y-2">
+                    <h2 className="text-4xl font-black italic">Referto Clinico 🐾</h2>
+                    <p className="text-3xl font-black text-[#5c871c] italic">Corrette: {lastSessionResult.correctAnswers} / {lastSessionResult.totalCards}</p>
+                </div>
+                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Dashboard</button>
+             </div>
+             <div className="space-y-8">
+                 {lastSessionResult.details?.map((item, idx) => (
+                   <div key={idx} className={`p-10 rounded-[3.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-[#5c871c]/10 shadow-sm' : 'border-rose-100 shadow-xl shadow-rose-50'} space-y-8`}>
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1"><span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Domanda {idx + 1} ({item.q.subject})</span><p className="text-2xl font-black italic text-gray-800">{item.q.question}</p></div>
+                        {item.selected === item.q.correctIndex ? <span className="text-[#5c871c] text-3xl">✓</span> : <span className="text-rose-500 text-3xl">✕</span>}
+                      </div>
+                      <div className="space-y-3">
+                         {item.q.options.map((opt: any, i: number) => (
+                           <div key={i} className={`p-5 rounded-[2rem] flex items-center gap-4 font-bold border transition-colors ${i === item.q.correctIndex ? 'bg-[#f4f7ed] border-[#5c871c]/30 text-[#5c871c]' : i === item.selected ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
+                             <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${i === item.q.correctIndex ? themeClasses.bg + ' text-white' : i === item.selected ? 'bg-rose-600 text-white' : 'bg-white text-gray-300'}`}>{String.fromCharCode(65+i)}</span> {opt}
+                           </div>
+                         ))}
+                      </div>
+                      <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10 italic text-sm text-gray-700">
+                         <p className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] mb-2 flex items-center gap-2">🐶 {AI_FEEDBACK_TITLES[idx % AI_FEEDBACK_TITLES.length]}</p>
+                         {item.q.explanation}
+                      </div>
+                   </div>
+                 ))}
+             </div>
+          </div>
+        )}
       </main>
 
+      {/* Navigation Mobile */}
       <nav className="md:hidden fixed bottom-6 left-4 right-4 bg-white/95 backdrop-blur-3xl border border-gray-100 rounded-[3rem] flex justify-around items-center p-5 z-40 shadow-2xl">
-        {[{ id: 'dashboard', icon: <ICONS.Dashboard /> }, { id: 'study', icon: <ICONS.Study /> }, { id: 'badges', icon: <ICONS.Badges /> }, { id: 'calendar', icon: <ICONS.Calendar /> }, { id: 'history', icon: <ICONS.History /> }].map(item => (
+        {[
+          { id: 'dashboard', icon: <ICONS.Dashboard /> },
+          { id: 'study', icon: <ICONS.Study /> },
+          { id: 'badges', icon: <ICONS.Badges /> },
+          { id: 'calendar', icon: <ICONS.Calendar /> },
+          { id: 'history', icon: <ICONS.History /> }
+        ].map(item => (
           <button key={item.id} onClick={() => setView(item.id as AppView)} className={`p-3 rounded-2xl transition-all active:scale-75 ${view === item.id ? themeClasses.text + ' bg-[#f4f7ed] shadow-inner' : 'text-gray-300'}`}>{item.icon}</button>
         ))}
       </nav>
 
+      {/* Modal Esame */}
       {showGeneralTestModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-2xl animate-fadeIn">
           <div className="bg-white w-full max-w-lg rounded-[4rem] p-12 text-center space-y-10 shadow-3xl">
