@@ -109,10 +109,10 @@ export const generateBalancedExam = async (
   const prompt = `Genera un esame bilanciato di ${totalQuestions} domande standard Abivet.
   MAPPATURA MODULI: ${detailedMapString}
   REGOLA: Inserisci almeno 2-3 domande per OGNI modulo citato (per esame da 50 Q) o 4-5 per l'esame da 100 Q. 
-  TUTTI i quiz devono avere 5 opzioni. JSON.`;
+  TUTTI i quiz devono avere 5 opzioni. Restituisci JSON.`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
+    model: 'gemini-3-flash-preview',
     contents: prompt,
     config: {
       systemInstruction: TODO_AI_PERSONA,

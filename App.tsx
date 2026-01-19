@@ -41,7 +41,6 @@ const App: React.FC = () => {
   const [badges, setBadges] = useState<Badge[]>([]);
   const [reminders, setReminders] = useState<StudyReminder[]>([]);
   const [showGeneralTestModal, setShowGeneralTestModal] = useState<null | '1' | 'F'>(null);
-  const [showDiplomaCongrats, setShowDiplomaCongrats] = useState(false);
   const [currentQuote, setCurrentQuote] = useState("");
   
   const [selectedLabSubject, setSelectedLabSubject] = useState<string>(ABIVET_SUBJECTS[Year.First][0]);
@@ -73,23 +72,40 @@ const App: React.FC = () => {
     scrollToTop();
   }, [view, currentIdx, scrollToTop]);
 
-  // Caricamento dati persistenti
+  // Caricamento dati persistenti con validazione
   useEffect(() => {
-    const load = (key: string) => localStorage.getItem(key);
-    try {
-      if (load(STORAGE_KEYS.CARDS)) setCards(JSON.parse(load(STORAGE_KEYS.CARDS)!));
-      if (load(STORAGE_KEYS.QUIZ)) setQuizDB(JSON.parse(load(STORAGE_KEYS.QUIZ)!));
-      if (load(STORAGE_KEYS.HISTORY)) setHistory(JSON.parse(load(STORAGE_KEYS.HISTORY)!));
-      if (load(STORAGE_KEYS.BADGES)) setBadges(JSON.parse(load(STORAGE_KEYS.BADGES)!));
-      if (load(STORAGE_KEYS.REMINDERS)) setReminders(JSON.parse(load(STORAGE_KEYS.REMINDERS)!));
-      refreshQuote();
-    } catch (e) { console.error("Persistence error", e); }
+    const load = (key: string) => {
+      const data = localStorage.getItem(key);
+      try {
+        return data ? JSON.parse(data) : null;
+      } catch (e) {
+        console.error("Error parsing localStorage key:", key);
+        return null;
+      }
+    };
+
+    const savedCards = load(STORAGE_KEYS.CARDS);
+    if (savedCards) setCards(savedCards);
+
+    const savedQuiz = load(STORAGE_KEYS.QUIZ);
+    if (savedQuiz) setQuizDB(savedQuiz);
+
+    const savedHistory = load(STORAGE_KEYS.HISTORY);
+    if (savedHistory) setHistory(savedHistory);
+
+    const savedBadges = load(STORAGE_KEYS.BADGES);
+    if (savedBadges) setBadges(savedBadges);
+
+    const savedReminders = load(STORAGE_KEYS.REMINDERS);
+    if (savedReminders) setReminders(savedReminders);
+
+    refreshQuote();
   }, []);
 
   // Salvataggio dati persistenti
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards));
-    localStorage.setItem(STORAGE_KEYS.QUIZ, JSON.stringify(quizDB));
+    if (cards.length > 0) localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards));
+    if (quizDB.length > 0) localStorage.setItem(STORAGE_KEYS.QUIZ, JSON.stringify(quizDB));
     localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history));
     localStorage.setItem(STORAGE_KEYS.BADGES, JSON.stringify(badges));
     localStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(reminders));
@@ -114,7 +130,7 @@ const App: React.FC = () => {
   
   const totalAccuracy = useMemo(() => {
     if (history.length === 0) return 0;
-    return Math.round(history.reduce((a, b) => a + b.accuracy, 0) / history.length);
+    return Math.round(history.reduce((a, b) => a + (b.accuracy || 0), 0) / history.length);
   }, [history]);
 
   const exam1Passed = history.some(h => h.subject === "Esame Primo Anno" && h.accuracy >= 60);
@@ -126,12 +142,11 @@ const App: React.FC = () => {
     const uniqueModulesTested = new Set(valid.map(h => h.subject));
     if (uniqueModulesTested.size < 3) return { locked: true, progress: uniqueModulesTested.size };
     
-    const stats: Record<string, {acc: number, count: number, last: number}> = {};
+    const stats: Record<string, {acc: number, count: number}> = {};
     valid.forEach(h => {
-      if (!stats[h.subject]) stats[h.subject] = { acc: 0, count: 0, last: 0 };
+      if (!stats[h.subject]) stats[h.subject] = { acc: 0, count: 0 };
       stats[h.subject].acc += h.accuracy;
       stats[h.subject].count++;
-      stats[h.subject].last = h.accuracy;
     });
     const sorted = Object.entries(stats).sort((a,b) => (a[1].acc/a[1].count) - (b[1].acc/b[1].count));
     const worst = sorted[0];
@@ -150,16 +165,20 @@ const App: React.FC = () => {
 
     if (type === '1' || type === 'F') {
       setIsGenerating(true); setGenProgress(0);
-      setLoadMsg(`Todo sta preparando l'esame (${count} domande)...`);
-      const timer = setInterval(() => setGenProgress(p => p < 90 ? p + 1 : p), 700);
+      setLoadMsg(`Todo sta preparando il protocollo d'esame (${count} Q.)...`);
+      const timer = setInterval(() => setGenProgress(p => p < 95 ? p + 1 : p), 600);
       try {
         pool = await generateBalancedExam(type as any, count);
         clearInterval(timer); setGenProgress(100);
-      } catch(e) { clearInterval(timer); setIsGenerating(false); return alert("Errore connessione AI."); }
+      } catch(e) { 
+        clearInterval(timer); setIsGenerating(false); 
+        console.error(e);
+        return alert("Errore connessione AI. Assicurati che l'API_KEY su Vercel sia corretta!"); 
+      }
       setIsGenerating(false);
     } else {
       pool = s === 'Tutto' ? quizDB : quizDB.filter(q => q.subject === s);
-      if (pool.length === 0) return alert("Usa il Laboratorio AI per questo modulo!");
+      if (pool.length === 0) return alert("Usa prima il Laboratorio AI per generare le domande di questo modulo!");
       pool = pool.sort(() => Math.random() - 0.5).slice(0, 10);
     }
     
@@ -182,9 +201,7 @@ const App: React.FC = () => {
 
     let finalAccuracy = 0; let points = 0;
     if (isExam) {
-      // Punteggi Abivet: +2 corretta, -0.50 sbagliata, -0.25 mancata
       points = (correct * 2) - (wrong * 0.5) - (unanswered * 0.25);
-      // Trasformiamo in punteggio su 100 per l'accuracy (Max possibile = domande * 2)
       finalAccuracy = (points / (currentSessionQuiz.length * 2)) * 100;
       if (finalAccuracy < 0) finalAccuracy = 0;
     } else {
@@ -217,7 +234,7 @@ const App: React.FC = () => {
     const timer = setInterval(() => {
       setGenProgress(p => p < 95 ? p + 2 : p);
       setLoadMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
-    }, 1200);
+    }, 1000);
     try {
       const year = ABIVET_SUBJECTS[Year.First].includes(subject) ? Year.First : Year.Second;
       const [newCards, newQuiz] = await Promise.all([
@@ -225,13 +242,16 @@ const App: React.FC = () => {
         generateQuizQuestions(subject, year, [], 20)
       ]);
       
-      // LOGICA OVERWRITE PER MODULO
       setCards(prev => [...prev.filter(c => c.subject !== subject), ...newCards]);
       setQuizDB(prev => [...prev.filter(q => q.subject !== subject), ...newQuiz]);
       
       clearInterval(timer); setGenProgress(100);
       setTimeout(() => setIsGenerating(false), 800);
-    } catch (e) { clearInterval(timer); setIsGenerating(false); alert("Errore connessione AI."); }
+    } catch (e) { 
+      clearInterval(timer); setIsGenerating(false); 
+      console.error(e);
+      alert("Errore AI. Controlla l'API_KEY nelle impostazioni di Vercel."); 
+    }
   };
 
   const startFlashcardSession = (s: string) => {
@@ -243,7 +263,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col md:flex-row pb-24 md:pb-0 font-['Inter']">
-      {/* Sidebar */}
       <aside className="w-80 bg-white border-r border-gray-100 hidden md:flex flex-col fixed inset-y-0 z-30 shadow-sm">
         <div className="p-10 border-b border-gray-50 text-center">
           <div onClick={refreshQuote} className={`w-20 h-20 mx-auto ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-white text-4xl shadow-2xl mb-4 cursor-pointer hover:rotate-6 transition-all active:scale-95`}>🐶</div>
@@ -266,7 +285,6 @@ const App: React.FC = () => {
         {view === 'dashboard' && (
           <div className="max-w-5xl mx-auto space-y-12 animate-fadeIn pb-12">
             <div className="bg-white p-8 md:p-12 rounded-[3.5rem] border border-gray-100 shadow-sm flex flex-col md:flex-row items-center gap-8 relative overflow-hidden group">
-               <div className="absolute top-0 right-0 p-10 opacity-[0.03] scale-150 rotate-12 pointer-events-none text-4xl">🐾</div>
                <div onClick={refreshQuote} className={`w-28 h-28 md:w-32 md:h-32 ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-5xl md:text-6xl shadow-2xl cursor-pointer transition-all hover:scale-110 active:rotate-12`}>🐶</div>
                <div className="flex-1 text-center md:text-left space-y-3 z-10">
                   <h2 className="text-3xl md:text-4xl font-black italic text-gray-800">Bentornata Alice! 🐾</h2>
@@ -291,13 +309,13 @@ const App: React.FC = () => {
                        <div className="flex-1 space-y-3">
                           <p className={`text-xl md:text-2xl font-black ${todoAdvice.isFailed ? 'text-rose-900' : 'text-[#5c871c]'}`}>Criticità: {todoAdvice.subject}</p>
                           <p className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2 text-gray-500"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Media Recente: {todoAdvice.accuracy}%</p>
-                          <p className="italic font-medium text-lg text-gray-600">"Alice, il mio fiuto indica che devi ripassare questo modulo!"</p>
+                          <p className="italic font-medium text-lg text-gray-600">"Alice, il mio fiuto indica che questo modulo è il tuo punto debole attuale!"</p>
                        </div>
                        <button onClick={() => startQuizSession(todoAdvice.subject!)} className="w-full md:w-auto px-12 py-6 bg-gray-900 text-white rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-black transition-all shadow-2xl active:scale-95">RIPETI QUIZ 🦴</button>
                     </div>
                   ) : (
                     <div className="p-10 bg-gray-50 rounded-[3rem] border-2 border-dashed border-gray-200 text-center space-y-4">
-                       <p className="text-lg font-bold text-gray-500 italic">"Completa quiz in almeno 3 moduli per attivare il mio fiuto clinico! ({todoAdvice.progress}/3)"</p>
+                       <p className="text-lg font-bold text-gray-500 italic">"Completa quiz in almeno 3 moduli diversi per attivare il mio fiuto clinico! ({todoAdvice.progress}/3)"</p>
                     </div>
                   )}
                </div>
@@ -332,7 +350,7 @@ const App: React.FC = () => {
                     <div className="absolute -bottom-10 -right-10 opacity-10 text-9xl">🏆</div>
                     <span className={`text-7xl drop-shadow-2xl ${isFinalUnlocked ? 'animate-bounce' : ''}`}>🏆</span>
                     <h4 className="text-2xl font-black italic text-emerald-900 h-10 flex items-center justify-center">Diploma Abivet</h4>
-                    <button disabled={!isFinalUnlocked} onClick={() => setShowDiplomaCongrats(true)} className={`w-full py-7 rounded-[2rem] font-black text-lg uppercase shadow-2xl relative z-10 transition-all ${isFinalUnlocked ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-300 text-white'}`}>RITIRA DIPLOMA</button>
+                    <button disabled={!isFinalUnlocked} onClick={() => alert("Ottieni tutti i badge e supera l'esame del 1° anno!")} className={`w-full py-7 rounded-[2rem] font-black text-lg uppercase shadow-2xl relative z-10 transition-all ${isFinalUnlocked ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-300 text-white'}`}>RITIRA DIPLOMA</button>
                   </div>
                </div>
             </div>
@@ -388,7 +406,7 @@ const App: React.FC = () => {
               <h2 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-800">Bacheca d'Eccellenza 🏆</h2>
               <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/20 inline-block shadow-sm">
                   <p className="text-[#5c871c] font-black uppercase tracking-widest text-[11px] mb-2 flex items-center gap-2">🐶 Istruzioni di Todo:</p>
-                  <p className="text-gray-600 font-bold italic text-sm">"Ottieni almeno l'80% di precisione in un quiz modulo per sbloccare il suo badge clinico Alice!"</p>
+                  <p className="text-gray-600 font-bold italic text-sm">"Alice, completa un quiz specifico per materia ottenendo almeno l'80% per sbloccare il badge clinico corrispondente. Ottenerli tutti è necessario per il Diploma!"</p>
                </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
@@ -418,17 +436,17 @@ const App: React.FC = () => {
              <div className="bg-white rounded-[3rem] border border-gray-100 shadow-sm overflow-hidden">
                 <table className="w-full text-left">
                    <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      <tr className="border-b"><th className="px-10 py-8">Data</th><th className="px-10 py-8">Modulo</th><th className="px-10 py-8 text-right">Esito</th></tr>
+                      <tr className="border-b"><th className="px-10 py-8">Data</th><th className="px-10 py-8">Modulo / Test</th><th className="px-10 py-8 text-right">Esito</th></tr>
                    </thead>
                    <tbody className="divide-y text-xs font-bold">
                       {history.map(h => (
                         <tr key={h.id} onClick={() => { setLastSessionResult(h); setView('review'); }} className="hover:bg-gray-50 cursor-pointer transition-colors group">
-                           <td className="px-10 py-8 text-gray-400">{new Date(h.date).toLocaleDateString()}</td>
-                           <td className="px-10 py-8 font-black text-gray-900 italic">{h.subject} <span className="text-[9px] opacity-30">({h.type})</span></td>
+                           <td className="px-10 py-8 text-gray-400">{new Date(h.date).toLocaleDateString('it-IT')}</td>
+                           <td className="px-10 py-8 font-black text-gray-900 italic">{h.subject} <span className="text-[9px] opacity-30 tracking-widest">({h.type})</span></td>
                            <td className={`px-10 py-8 text-right font-black text-2xl ${h.accuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{Math.round(h.accuracy)}%</td>
                         </tr>
                       ))}
-                      {history.length === 0 && <tr><td colSpan={3} className="px-10 py-24 text-center text-gray-300 italic">Nessun referto presente Alice! 🐾</td></tr>}
+                      {history.length === 0 && <tr><td colSpan={3} className="px-10 py-24 text-center text-gray-300 italic text-lg">Ancora nessun referto clinico Alice! 🐾</td></tr>}
                    </tbody>
                 </table>
              </div>
@@ -443,7 +461,7 @@ const App: React.FC = () => {
                     <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Domanda {currentIdx + 1} di {currentSessionQuiz.length}</span>
                     {timeLeft !== null && <div className={`px-6 py-2 rounded-full font-black text-sm border-2 ${timeLeft < 300 ? 'bg-rose-50 border-rose-500 text-rose-500 animate-pulse' : 'bg-white border-gray-100 text-gray-400'}`}>⏱️ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</div>}
                </div>
-               <div className="mt-12 text-xl md:text-3xl font-black italic text-gray-800">{currentSessionQuiz[currentIdx].question}</div>
+               <div className="mt-12 text-xl md:text-3xl font-black italic text-gray-800 leading-tight">{currentSessionQuiz[currentIdx].question}</div>
                <div className="grid grid-cols-1 gap-4 text-left">
                   {currentSessionQuiz[currentIdx].options.map((opt, i) => (
                     <button key={i} onClick={() => setUserSelections(v => ({...v, [currentIdx]: i}))} className={`p-5 md:p-7 rounded-[2rem] border-2 flex items-center gap-6 transition-all ${userSelections[currentIdx] === i ? 'border-[#5c871c] bg-[#f4f7ed] shadow-lg scale-[1.01]' : 'border-gray-50 bg-gray-50/50 hover:bg-gray-100 active:scale-95'}`}>
@@ -478,18 +496,18 @@ const App: React.FC = () => {
                         </div>
                     )}
                 </div>
-                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Dashboard</button>
+                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Torna alla Dashboard</button>
              </div>
              <div className="space-y-8">
                  {lastSessionResult.details?.map((item, idx) => (
-                   <div key={idx} className={`p-10 rounded-[3.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-[#5c871c]/10' : 'border-rose-100 shadow-xl shadow-rose-50'} space-y-8`}>
-                      <div className="flex justify-between items-start">
+                   <div key={idx} className={`p-10 rounded-[3.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-[#5c871c]/10 shadow-sm' : 'border-rose-100 shadow-xl shadow-rose-50'} space-y-8`}>
+                      <div className="flex justify-between items-start gap-4">
                         <div className="flex-1"><span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Domanda {idx + 1} ({item.q.subject})</span><p className="text-2xl font-black italic text-gray-800">{item.q.question}</p></div>
                         {item.selected === item.q.correctIndex ? <span className="text-[#5c871c] text-3xl">✓</span> : <span className="text-rose-500 text-3xl">✕</span>}
                       </div>
                       <div className="space-y-3">
                          {item.q.options.map((opt: any, i: number) => (
-                           <div key={i} className={`p-5 rounded-[2rem] flex items-center gap-4 font-bold border ${i === item.q.correctIndex ? 'bg-[#f4f7ed] border-[#5c871c]/30 text-[#5c871c]' : i === item.selected ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
+                           <div key={i} className={`p-5 rounded-[2rem] flex items-center gap-4 font-bold border transition-colors ${i === item.q.correctIndex ? 'bg-[#f4f7ed] border-[#5c871c]/30 text-[#5c871c]' : i === item.selected ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
                              <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${i === item.q.correctIndex ? themeClasses.bg + ' text-white' : i === item.selected ? 'bg-rose-600 text-white' : 'bg-white text-gray-300'}`}>{String.fromCharCode(65+i)}</span> {opt}
                            </div>
                          ))}
@@ -520,7 +538,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Nav Mobile */}
       <nav className="md:hidden fixed bottom-6 left-4 right-4 bg-white/95 backdrop-blur-3xl border border-gray-100 rounded-[3rem] flex justify-around items-center p-5 z-40 shadow-2xl">
         {[
           { id: 'dashboard', icon: <ICONS.Dashboard /> },
@@ -533,14 +550,14 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      {/* Modale Esami */}
       {showGeneralTestModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-2xl animate-fadeIn">
           <div className="bg-white w-full max-w-lg rounded-[4rem] p-12 text-center space-y-10 shadow-3xl">
-            <h4 className="text-4xl font-black italic tracking-tighter uppercase text-gray-900">PRONTA ALICE? 🐾</h4>
+            <h4 className="text-4xl font-black italic tracking-tighter uppercase text-gray-900 leading-none">PRONTA ALICE? 🐾</h4>
             <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10">
                 <p className="text-gray-700 font-black text-lg">{showGeneralTestModal === '1' ? 'Esame 1° Anno: 50 Q. - 30 min.' : 'Esame Finale: 100 Q. - 60 min.'}</p>
-                <p className="text-[10px] text-amber-600 font-black uppercase">Soglia Diploma: 60 su 100</p>
+                <p className="text-[10px] text-amber-600 font-black uppercase tracking-widest mt-2 font-bold">Protocollo Abivet Clinical</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Soglia Diploma: 60 su 100</p>
             </div>
             <div className="grid gap-4">
               <button onClick={() => { startQuizSession('Tutto', showGeneralTestModal); setShowGeneralTestModal(null); }} className={`py-8 ${themeClasses.bg} text-white rounded-[2.5rem] font-black text-2xl shadow-2xl uppercase active:scale-95 transition-all hover:bg-[#6fab1c]`}>INIZIA 🦴</button>
