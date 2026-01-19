@@ -7,11 +7,11 @@ Il tuo tono è professionale, asciutto e clinico.
 
 REGOLE DI GENERAZIONE:
 1. Devi attenerti rigorosamente allo standard clinico Abivet.
-2. Le flashcard NON sono test a risposta multipla. Devono contenere una domanda e una risposta aperta/tecnica dettagliata.
-3. Ogni quiz (per i test) DEVE avere ESATTAMENTE 5 opzioni di risposta.
-4. Fornisci spiegazioni tecniche approfondite per ogni risposta.
-5. DEVI coprire TUTTI i sottoargomenti citati senza esclusioni.
-6. Non trascurare MAI i moduli di "Procedura infermieristiche" e "Procedura infermieristiche di base".`;
+2. Flashcard: Domanda e Risposta tecnica classica (NO risposta multipla). Suggerimento obbligatorio.
+3. Quiz: ESATTAMENTE 5 opzioni di risposta per ogni domanda.
+4. Ogni spiegazione deve essere profonda e basata su protocolli Abivet.
+5. Includi sempre i moduli di "Procedura infermieristiche" e "Procedura infermieristiche di base" negli esami generali.
+6. Copri in modo omogeneo TUTTI i sottoargomenti forniti.`;
 
 export const generateFlashcards = async (
   subject: string,
@@ -21,7 +21,7 @@ export const generateFlashcards = async (
 ): Promise<Flashcard[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const subTopics = DETAILED_SUBJECTS[subject] || "";
-  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche CLASSICHE (Domanda/Risposta). JSON format.`;
+  const prompt = `MODULO: ${subject} (${year}). TEMI: ${subTopics}. Genera ${count} flashcard tecniche (Domanda/Risposta). JSON format.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
@@ -34,10 +34,10 @@ export const generateFlashcards = async (
         items: {
           type: Type.OBJECT,
           properties: {
-            question: { type: Type.STRING, description: "La domanda tecnica da porsi." },
-            concept: { type: Type.STRING, description: "Suggerimento o parola chiave breve." },
-            answer: { type: Type.STRING, description: "Risposta tecnica completa ed esaustiva." },
-            explanation: { type: Type.STRING, description: "Commento clinico di Todo AI." },
+            question: { type: Type.STRING },
+            concept: { type: Type.STRING, description: "Parola chiave o suggerimento breve." },
+            answer: { type: Type.STRING },
+            explanation: { type: Type.STRING, description: "Focus tecnico Todo.AI." },
             difficulty: { type: Type.STRING, enum: ['Facile', 'Media', 'Difficile'] },
           },
           required: ["question", "concept", "answer", "difficulty", "explanation"],
@@ -78,7 +78,7 @@ export const generateQuizQuestions = async (
           type: Type.OBJECT,
           properties: {
             question: { type: Type.STRING },
-            options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "5 opzioni." },
+            options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Deve contenere esattamente 5 opzioni." },
             correctIndex: { type: Type.INTEGER },
             explanation: { type: Type.STRING },
             difficulty: { type: Type.STRING, enum: ['Facile', 'Media', 'Difficile'] },
@@ -106,9 +106,10 @@ export const generateBalancedExam = async (
   let subjects: string[] = type === '1' ? ABIVET_SUBJECTS[Year.First] : [...ABIVET_SUBJECTS[Year.First], ...ABIVET_SUBJECTS[Year.Second]];
 
   const detailedMapString = subjects.map(s => `[MODULO: ${s}, TEMI: ${DETAILED_SUBJECTS[s]}]`).join('\n');
-  const prompt = `Genera un esame Abivet di ${totalQuestions} domande bilanciate. 
-  MAPPATURA: ${detailedMapString}
-  REGOLA: ALMENO 1-2 domande per OGNI modulo citato. 5 opzioni per quiz. Focus su Procedura Infermieristica. JSON.`;
+  const prompt = `Genera un esame bilanciato di ${totalQuestions} domande standard Abivet.
+  MAPPATURA MODULI: ${detailedMapString}
+  REGOLA: Inserisci almeno 2-3 domande per OGNI modulo citato (per esame da 50 Q) o 4-5 per l'esame da 100 Q. 
+  TUTTI i quiz devono avere 5 opzioni. JSON.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',

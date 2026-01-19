@@ -62,6 +62,18 @@ const App: React.FC = () => {
     CARDS: 'ab_v21_cards', QUIZ: 'ab_v21_quiz', HISTORY: 'ab_v21_history', BADGES: 'ab_v21_badges', REMINDERS: 'ab_v21_rem'
   };
 
+  // Funzione scroll centralizzata
+  const scrollToTop = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const main = document.querySelector('main');
+    if (main) main.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    scrollToTop();
+  }, [view, currentIdx, scrollToTop]);
+
+  // Caricamento dati persistenti
   useEffect(() => {
     const load = (key: string) => localStorage.getItem(key);
     try {
@@ -74,6 +86,7 @@ const App: React.FC = () => {
     } catch (e) { console.error("Persistence error", e); }
   }, []);
 
+  // Salvataggio dati persistenti
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.CARDS, JSON.stringify(cards));
     localStorage.setItem(STORAGE_KEYS.QUIZ, JSON.stringify(quizDB));
@@ -82,6 +95,7 @@ const App: React.FC = () => {
     localStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(reminders));
   }, [cards, quizDB, history, badges, reminders]);
 
+  // Gestione Timer
   useEffect(() => {
     if (timeLeft === null) return;
     if (timeLeft <= 0) {
@@ -108,9 +122,9 @@ const App: React.FC = () => {
   const isFinalUnlocked = badges1.length === subj1.length && badges2.length === subj2.length && exam1Passed;
 
   const todoAdvice = useMemo(() => {
-    const valid = history.filter(h => !h.subject.startsWith('Esame') && h.subject !== 'Tutto' && h.type === 'Quiz');
+    const valid = history.filter(h => h.type === 'Quiz' && h.subject !== 'Tutto');
     const uniqueModulesTested = new Set(valid.map(h => h.subject));
-    if (uniqueModulesTested.size < 5) return { locked: true, progress: uniqueModulesTested.size };
+    if (uniqueModulesTested.size < 3) return { locked: true, progress: uniqueModulesTested.size };
     
     const stats: Record<string, {acc: number, count: number, last: number}> = {};
     valid.forEach(h => {
@@ -119,8 +133,9 @@ const App: React.FC = () => {
       stats[h.subject].count++;
       stats[h.subject].last = h.accuracy;
     });
-    const worst = Object.entries(stats).sort((a,b) => a[1].last - b[1].last)[0];
-    return { locked: false, subject: worst[0], accuracy: Math.round(worst[1].acc / worst[1].count), isFailed: worst[1].last < 60 };
+    const sorted = Object.entries(stats).sort((a,b) => (a[1].acc/a[1].count) - (b[1].acc/b[1].count));
+    const worst = sorted[0];
+    return { locked: false, subject: worst[0], accuracy: Math.round(worst[1].acc / worst[1].count), isFailed: (worst[1].acc/worst[1].count) < 60 };
   }, [history]);
 
   const refreshQuote = () => setCurrentQuote(TODO_QUOTES[Math.floor(Math.random() * TODO_QUOTES.length)]);
@@ -130,7 +145,7 @@ const App: React.FC = () => {
     let count = 10;
     let time = null;
 
-    if (type === '1') { count = 30; time = 30 * 60; } 
+    if (type === '1') { count = 50; time = 30 * 60; } 
     else if (type === 'F') { count = 100; time = 60 * 60; }
 
     if (type === '1' || type === 'F') {
@@ -144,7 +159,7 @@ const App: React.FC = () => {
       setIsGenerating(false);
     } else {
       pool = s === 'Tutto' ? quizDB : quizDB.filter(q => q.subject === s);
-      if (pool.length === 0) return alert("Genera prima le domande nel Laboratorio AI!");
+      if (pool.length === 0) return alert("Usa il Laboratorio AI per questo modulo!");
       pool = pool.sort(() => Math.random() - 0.5).slice(0, 10);
     }
     
@@ -167,9 +182,9 @@ const App: React.FC = () => {
 
     let finalAccuracy = 0; let points = 0;
     if (isExam) {
-      // Criteri Abivet: +2 corretta, -0.50 sbagliata, -0.25 non data
+      // Punteggi Abivet: +2 corretta, -0.50 sbagliata, -0.25 mancata
       points = (correct * 2) - (wrong * 0.5) - (unanswered * 0.25);
-      // Trasformiamo in percentuale su base 100 (punteggio massimo possibile = count * 2)
+      // Trasformiamo in punteggio su 100 per l'accuracy (Max possibile = domande * 2)
       finalAccuracy = (points / (currentSessionQuiz.length * 2)) * 100;
       if (finalAccuracy < 0) finalAccuracy = 0;
     } else {
@@ -177,7 +192,7 @@ const App: React.FC = () => {
     }
 
     const res: TestResult = { 
-      id: Math.random().toString(), date: Date.now(), subject: activeSubject, 
+      id: Math.random().toString(36).substr(2, 9), date: Date.now(), subject: activeSubject, 
       type: isExam ? (activeSubject as any) : 'Quiz', 
       totalCards: currentSessionQuiz.length, correctAnswers: correct, accuracy: finalAccuracy,
       points: points, details: currentSessionQuiz.map((q, i) => ({ q, selected: userSelections[i] }))
@@ -210,7 +225,7 @@ const App: React.FC = () => {
         generateQuizQuestions(subject, year, [], 20)
       ]);
       
-      // LOGICA OVERWRITE: Rimuovi i dati precedenti del modulo per non accumulare
+      // LOGICA OVERWRITE PER MODULO
       setCards(prev => [...prev.filter(c => c.subject !== subject), ...newCards]);
       setQuizDB(prev => [...prev.filter(q => q.subject !== subject), ...newQuiz]);
       
@@ -221,14 +236,14 @@ const App: React.FC = () => {
 
   const startFlashcardSession = (s: string) => {
     const pool = s === 'Tutto' ? cards : cards.filter(c => c.subject === s);
-    if (pool.length === 0) return alert("Usa il Laboratorio AI per generare le flashcard!");
+    if (pool.length === 0) return alert("Usa il Laboratorio AI per questo modulo!");
     setCurrentSessionCards(pool.sort(() => Math.random() - 0.5).slice(0, 10));
     setCurrentIdx(0); setCorrectCount(0); setActiveSubject(s); setView('session');
   };
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col md:flex-row pb-24 md:pb-0 font-['Inter']">
-      {/* Sidebar Desktop */}
+      {/* Sidebar */}
       <aside className="w-80 bg-white border-r border-gray-100 hidden md:flex flex-col fixed inset-y-0 z-30 shadow-sm">
         <div className="p-10 border-b border-gray-50 text-center">
           <div onClick={refreshQuote} className={`w-20 h-20 mx-auto ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-white text-4xl shadow-2xl mb-4 cursor-pointer hover:rotate-6 transition-all active:scale-95`}>🐶</div>
@@ -251,20 +266,19 @@ const App: React.FC = () => {
         {view === 'dashboard' && (
           <div className="max-w-5xl mx-auto space-y-12 animate-fadeIn pb-12">
             <div className="bg-white p-8 md:p-12 rounded-[3.5rem] border border-gray-100 shadow-sm flex flex-col md:flex-row items-center gap-8 relative overflow-hidden group">
-               <div className="absolute top-0 right-0 p-10 opacity-[0.03] scale-150 rotate-12 pointer-events-none text-4xl">🦴🐾</div>
+               <div className="absolute top-0 right-0 p-10 opacity-[0.03] scale-150 rotate-12 pointer-events-none text-4xl">🐾</div>
                <div onClick={refreshQuote} className={`w-28 h-28 md:w-32 md:h-32 ${themeClasses.bg} rounded-[2.5rem] flex items-center justify-center text-5xl md:text-6xl shadow-2xl cursor-pointer transition-all hover:scale-110 active:rotate-12`}>🐶</div>
                <div className="flex-1 text-center md:text-left space-y-3 z-10">
                   <h2 className="text-3xl md:text-4xl font-black italic text-gray-800">Bentornata Alice! 🐾</h2>
                   <div className={`${themeClasses.light} p-5 rounded-2xl border ${themeClasses.border} border-opacity-10 shadow-inner`}><p className={`${themeClasses.text} font-bold italic text-lg leading-relaxed`}>"{currentQuote}"</p></div>
                   <div className="flex items-center justify-center md:justify-start gap-4 pt-2">
                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Precisione Media:</span>
-                     <div className="bg-gray-100 rounded-full h-3 w-32 overflow-hidden shadow-inner"><div className={`${themeClasses.bg} h-full transition-all duration-1000 shadow-[0_0_10px_rgba(92,135,28,0.5)]`} style={{width: `${totalAccuracy}%`}}></div></div>
+                     <div className="bg-gray-100 rounded-full h-3 w-32 overflow-hidden shadow-inner"><div className={`${themeClasses.bg} h-full transition-all duration-1000 shadow-[0_0_10px_#5c871c]`} style={{width: `${totalAccuracy}%`}}></div></div>
                      <span className={`text-sm font-black ${totalAccuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{totalAccuracy}%</span>
                   </div>
                </div>
             </div>
 
-            {/* Il Fiuto di Todo */}
             <section className="p-1 rounded-[4rem] bg-gradient-to-br from-[#5c871c] via-[#86b533] to-[#a2d149] shadow-2xl overflow-hidden">
                <div className="bg-white m-1 p-8 md:p-14 rounded-[3.8rem] space-y-8 relative">
                   <div className="flex items-center gap-6">
@@ -276,20 +290,19 @@ const App: React.FC = () => {
                        <div className="text-7xl md:text-8xl drop-shadow-2xl animate-pulse">{todoAdvice.isFailed ? '🩹🐈' : '🩺🐕'}</div>
                        <div className="flex-1 space-y-3">
                           <p className={`text-xl md:text-2xl font-black ${todoAdvice.isFailed ? 'text-rose-900' : 'text-[#5c871c]'}`}>Criticità: {todoAdvice.subject}</p>
-                          <p className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2 text-gray-500"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Risultato Recente: {todoAdvice.accuracy}%</p>
-                          <p className="italic font-medium text-lg text-gray-600">"Alice, il mio fiuto indica che devi ripassare tutti i sottoargomenti di questo modulo!"</p>
+                          <p className="text-[11px] font-black uppercase tracking-widest flex items-center gap-2 text-gray-500"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> Media Recente: {todoAdvice.accuracy}%</p>
+                          <p className="italic font-medium text-lg text-gray-600">"Alice, il mio fiuto indica che devi ripassare questo modulo!"</p>
                        </div>
                        <button onClick={() => startQuizSession(todoAdvice.subject!)} className="w-full md:w-auto px-12 py-6 bg-gray-900 text-white rounded-[2rem] font-black text-sm uppercase tracking-widest hover:bg-black transition-all shadow-2xl active:scale-95">RIPETI QUIZ 🦴</button>
                     </div>
                   ) : (
                     <div className="p-10 bg-gray-50 rounded-[3rem] border-2 border-dashed border-gray-200 text-center space-y-4">
-                       <p className="text-lg font-bold text-gray-500 italic">"Alice, completa quiz in almeno 5 moduli diversi per attivare il mio fiuto clinico! ({todoAdvice.progress}/5)"</p>
+                       <p className="text-lg font-bold text-gray-500 italic">"Completa quiz in almeno 3 moduli per attivare il mio fiuto clinico! ({todoAdvice.progress}/3)"</p>
                     </div>
                   )}
                </div>
             </section>
 
-            {/* Missione Osso d'Oro */}
             <div className="bg-white p-8 md:p-16 rounded-[4.5rem] border border-gray-100 shadow-sm space-y-12">
                <h3 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-900 text-center md:text-left">Missione Osso d'Oro 🦴</h3>
                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -301,7 +314,7 @@ const App: React.FC = () => {
                        <div className="flex justify-between text-[10px] font-black text-amber-800 uppercase tracking-widest"><span>Badge Moduli</span> <span>{badges1.length}/{subj1.length}</span></div>
                        <div className="h-4 bg-white/50 rounded-full overflow-hidden shadow-inner border border-amber-200/50"><div className="h-full bg-amber-500 transition-all duration-1000" style={{width: `${(badges1.length/subj1.length)*100}%`}}></div></div>
                     </div>
-                    <button disabled={isGenerating} onClick={() => setShowGeneralTestModal('1')} className={`w-full py-6 rounded-[2rem] font-black text-sm uppercase shadow-xl transition-all relative z-10 ${exam1Passed ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>{exam1Passed ? "COMPLETATO ✅" : "AVVIA (30 Q.)"}</button>
+                    <button disabled={isGenerating} onClick={() => setShowGeneralTestModal('1')} className={`w-full py-6 rounded-[2rem] font-black text-sm uppercase shadow-xl transition-all relative z-10 ${exam1Passed ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>{exam1Passed ? "COMPLETATO ✅" : "AVVIA (50 Q.)"}</button>
                   </div>
 
                   <div className={`p-8 md:p-10 rounded-[3.5rem] border-4 flex flex-col gap-8 transition-all hover:scale-[1.03] relative overflow-hidden group shadow-lg ${badges2.length === subj2.length ? 'border-blue-400 bg-gradient-to-br from-blue-50 to-indigo-100' : 'border-gray-50 bg-gray-50 opacity-60'}`}>
@@ -324,7 +337,6 @@ const App: React.FC = () => {
                </div>
             </div>
 
-            {/* Laboratorio AI */}
             <section className="bg-gradient-to-br from-slate-900 via-gray-950 to-slate-900 p-8 md:p-14 rounded-[4.5rem] text-white space-y-10 relative overflow-hidden border-t-8 border-[#5c871c] shadow-2xl">
                <div className="absolute inset-0 opacity-[0.05] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
                <div className="flex items-center gap-5 relative z-10">
@@ -333,11 +345,7 @@ const App: React.FC = () => {
                </div>
                <div className="flex flex-col sm:flex-row gap-6 relative z-10">
                   <div className="flex-1 relative group">
-                    <select 
-                      value={selectedLabSubject} 
-                      onChange={(e) => setSelectedLabSubject(e.target.value)} 
-                      className="w-full bg-white/5 border-2 border-white/10 p-7 rounded-[2.5rem] font-bold text-lg outline-none backdrop-blur-md focus:border-[#5c871c] transition-all hover:bg-white/10 cursor-pointer shadow-inner appearance-none relative z-10"
-                    >
+                    <select value={selectedLabSubject} onChange={(e) => setSelectedLabSubject(e.target.value)} className="w-full bg-white/5 border-2 border-white/10 p-7 rounded-[2.5rem] font-bold text-lg outline-none backdrop-blur-md focus:border-[#5c871c] transition-all hover:bg-white/10 cursor-pointer shadow-inner appearance-none relative z-10">
                       {allSubj.map(s => <option key={s} value={s} className="bg-gray-950 text-white">{s}</option>)}
                     </select>
                     <div className="absolute right-8 top-1/2 -translate-y-1/2 pointer-events-none text-[#5c871c] text-xl z-20 group-hover:scale-125 transition-transform">▼</div>
@@ -356,7 +364,77 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Altre viste qui (quiz_session, review, study, badges, etc.) - Tutte mantenute come nelle versioni precedenti */}
+        {view === 'study' && (
+          <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 animate-fadeIn pb-24 px-2">
+            {allSubj.map(s => {
+              const cardsCount = cards.filter(c => c.subject === s).length;
+              const quizCount = quizDB.filter(q => q.subject === s).length;
+              return (
+                <div key={s} className="bg-white p-10 rounded-[3.5rem] border border-gray-100 shadow-sm flex flex-col gap-10 hover:shadow-2xl transition-all group hover:scale-[1.02]">
+                   <div className="flex justify-between items-start"><h4 className="text-2xl font-black leading-tight flex-1 italic text-gray-800">{s}</h4><span className="text-5xl group-hover:scale-110 transition-transform">{SUBJECT_ICONS[s]}</span></div>
+                   <div className="grid grid-cols-2 gap-4 mt-auto">
+                     <button onClick={() => startFlashcardSession(s)} className={`py-5 rounded-[1.5rem] text-[11px] font-black uppercase transition-all active:scale-95 ${cardsCount > 0 ? themeClasses.bg + ' text-white shadow-md hover:bg-[#6fab1c]' : 'bg-gray-100 text-gray-400'}`}>Cards ({cardsCount})</button>
+                     <button onClick={() => startQuizSession(s)} className={`py-5 rounded-[1.5rem] text-[11px] font-black uppercase transition-all active:scale-95 ${quizCount > 0 ? 'bg-gray-900 text-white shadow-md hover:bg-black' : 'bg-gray-100 text-gray-400'}`}>Quiz ({quizCount})</button>
+                   </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {view === 'badges' && (
+          <div className="max-w-6xl mx-auto space-y-12 animate-fadeIn pb-20 px-2">
+            <div className="text-center md:text-left space-y-4">
+              <h2 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-800">Bacheca d'Eccellenza 🏆</h2>
+              <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/20 inline-block shadow-sm">
+                  <p className="text-[#5c871c] font-black uppercase tracking-widest text-[11px] mb-2 flex items-center gap-2">🐶 Istruzioni di Todo:</p>
+                  <p className="text-gray-600 font-bold italic text-sm">"Ottieni almeno l'80% di precisione in un quiz modulo per sbloccare il suo badge clinico Alice!"</p>
+               </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+              {allSubj.map(s => {
+                 const b = badges.find(x => x.subject === s);
+                 return (
+                   <div key={s} className={`p-8 rounded-[3rem] border-2 flex flex-col items-center gap-4 transition-all relative group shadow-sm hover:shadow-xl ${b ? 'bg-white border-[#5c871c]/10 shadow-lg scale-105' : 'bg-gray-100 border-gray-100 opacity-20 grayscale'}`}>
+                      <span className={`text-5xl ${b ? 'animate-pulse' : ''}`}>{SUBJECT_ICONS[s]}</span>
+                      <p className="text-[9px] font-black text-center uppercase text-gray-600 tracking-tight leading-none h-6 flex items-center">{s}</p>
+                      {b && <div className="absolute -top-3 -right-3 w-8 h-8 bg-[#5c871c] text-white rounded-full flex items-center justify-center text-xs shadow-lg font-black italic">✓</div>}
+                   </div>
+                 );
+              })}
+            </div>
+          </div>
+        )}
+
+        {view === 'calendar' && (
+          <div className="max-w-5xl mx-auto animate-fadeIn pb-32">
+            <StudyCalendar reminders={reminders} history={history} badges={badges} onAddReminder={(r) => setReminders(p => [...p, {...r, id: Math.random().toString(36).substr(2, 9)}])} onDeleteReminder={(id) => setReminders(p => p.filter(x => x.id !== id))} onToggleReminder={(id) => setReminders(p => p.map(x => x.id === id ? {...x, completed: !x.completed} : x))} />
+          </div>
+        )}
+
+        {view === 'history' && (
+          <div className="max-w-5xl mx-auto space-y-12 animate-fadeIn pb-20 px-2">
+             <h2 className="text-4xl md:text-5xl font-black italic tracking-tighter text-gray-800">Registro Analisi Cliniche 🩺</h2>
+             <div className="bg-white rounded-[3rem] border border-gray-100 shadow-sm overflow-hidden">
+                <table className="w-full text-left">
+                   <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      <tr className="border-b"><th className="px-10 py-8">Data</th><th className="px-10 py-8">Modulo</th><th className="px-10 py-8 text-right">Esito</th></tr>
+                   </thead>
+                   <tbody className="divide-y text-xs font-bold">
+                      {history.map(h => (
+                        <tr key={h.id} onClick={() => { setLastSessionResult(h); setView('review'); }} className="hover:bg-gray-50 cursor-pointer transition-colors group">
+                           <td className="px-10 py-8 text-gray-400">{new Date(h.date).toLocaleDateString()}</td>
+                           <td className="px-10 py-8 font-black text-gray-900 italic">{h.subject} <span className="text-[9px] opacity-30">({h.type})</span></td>
+                           <td className={`px-10 py-8 text-right font-black text-2xl ${h.accuracy >= 60 ? themeClasses.text : 'text-rose-500'}`}>{Math.round(h.accuracy)}%</td>
+                        </tr>
+                      ))}
+                      {history.length === 0 && <tr><td colSpan={3} className="px-10 py-24 text-center text-gray-300 italic">Nessun referto presente Alice! 🐾</td></tr>}
+                   </tbody>
+                </table>
+             </div>
+          </div>
+        )}
+
         {view === 'quiz_session' && currentSessionQuiz[currentIdx] && (
           <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn pb-40 px-2">
             <div className="bg-white p-8 md:p-20 rounded-[4.5rem] shadow-2xl border border-gray-100 space-y-12 text-center relative overflow-hidden">
@@ -365,7 +443,7 @@ const App: React.FC = () => {
                     <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Domanda {currentIdx + 1} di {currentSessionQuiz.length}</span>
                     {timeLeft !== null && <div className={`px-6 py-2 rounded-full font-black text-sm border-2 ${timeLeft < 300 ? 'bg-rose-50 border-rose-500 text-rose-500 animate-pulse' : 'bg-white border-gray-100 text-gray-400'}`}>⏱️ {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}</div>}
                </div>
-               <div className="mt-12"><p className="text-xl md:text-3xl font-black leading-tight italic text-gray-800">{currentSessionQuiz[currentIdx].question}</p></div>
+               <div className="mt-12 text-xl md:text-3xl font-black italic text-gray-800">{currentSessionQuiz[currentIdx].question}</div>
                <div className="grid grid-cols-1 gap-4 text-left">
                   {currentSessionQuiz[currentIdx].options.map((opt, i) => (
                     <button key={i} onClick={() => setUserSelections(v => ({...v, [currentIdx]: i}))} className={`p-5 md:p-7 rounded-[2rem] border-2 flex items-center gap-6 transition-all ${userSelections[currentIdx] === i ? 'border-[#5c871c] bg-[#f4f7ed] shadow-lg scale-[1.01]' : 'border-gray-50 bg-gray-50/50 hover:bg-gray-100 active:scale-95'}`}>
@@ -389,39 +467,40 @@ const App: React.FC = () => {
         {view === 'review' && lastSessionResult && (
           <div className="max-w-4xl mx-auto space-y-12 animate-fadeIn py-12 px-2 pb-32">
              <div className="text-center space-y-6">
-                <div className={`w-44 h-44 rounded-full mx-auto flex flex-col items-center justify-center font-black text-white text-5xl ${lastSessionResult.accuracy >= 60 ? themeClasses.bg : 'bg-rose-500'} shadow-[0_20px_50px_rgba(0,0,0,0.1)] border-8 border-white animate-fadeIn`}>{Math.round(lastSessionResult.accuracy)}%</div>
+                <div className={`w-44 h-44 rounded-full mx-auto flex flex-col items-center justify-center font-black text-white text-5xl ${lastSessionResult.accuracy >= 60 ? themeClasses.bg : 'bg-rose-500'} shadow-2xl border-8 border-white animate-fadeIn`}>{Math.round(lastSessionResult.accuracy)}%</div>
                 <div className="space-y-2">
                     <h2 className="text-4xl font-black italic">Referto Clinico 🐾</h2>
-                    <p className="text-3xl font-black text-[#5c871c] italic">Indovinate: {lastSessionResult.correctAnswers} / {lastSessionResult.totalCards}</p>
+                    <p className="text-3xl font-black text-[#5c871c] italic">Risposte Corrette: {lastSessionResult.correctAnswers} / {lastSessionResult.totalCards}</p>
                     {lastSessionResult.subject.startsWith('Esame') && (
                         <div className="space-y-1 mt-2">
                             <p className="text-lg font-black text-gray-400 uppercase tracking-widest">Punteggio Abivet: {lastSessionResult.points?.toFixed(2)} pts</p>
-                            <p className="text-[10px] font-bold text-gray-300">Soglia Diploma: 60%</p>
+                            <p className="text-xs font-bold text-gray-300">Soglia Diploma: 60 su 100 ({Math.round(lastSessionResult.accuracy)}%)</p>
                         </div>
                     )}
                 </div>
-                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Torna alla Dashboard</button>
+                <button onClick={() => setView('dashboard')} className="px-12 py-5 bg-gray-900 text-white rounded-2xl font-black uppercase shadow-xl hover:bg-black transition-all active:scale-95">Dashboard</button>
              </div>
-             {/* Dettagli risposte mantenuti */}
-          </div>
-        )}
-
-        {/* Libreria e Badge mantenuti */}
-        {view === 'study' && (
-          <div className="max-w-6xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 animate-fadeIn pb-24 px-2">
-            {allSubj.map(s => {
-              const cardsCount = cards.filter(c => c.subject === s).length;
-              const quizCount = quizDB.filter(q => q.subject === s).length;
-              return (
-                <div key={s} className="bg-white p-10 rounded-[3.5rem] border border-gray-100 shadow-sm flex flex-col gap-10 hover:shadow-2xl transition-all group hover:scale-[1.02]">
-                   <div className="flex justify-between items-start"><h4 className="text-2xl font-black leading-tight flex-1 italic text-gray-800">{s}</h4><span className="text-5xl group-hover:scale-110 transition-transform">{SUBJECT_ICONS[s]}</span></div>
-                   <div className="grid grid-cols-2 gap-4 mt-auto">
-                     <button onClick={() => startFlashcardSession(s)} className={`py-5 rounded-[1.5rem] text-[11px] font-black uppercase transition-all active:scale-95 ${cardsCount > 0 ? themeClasses.bg + ' text-white shadow-md hover:bg-[#6fab1c]' : 'bg-gray-100 text-gray-400'}`}>Cards ({cardsCount})</button>
-                     <button onClick={() => startQuizSession(s)} className={`py-5 rounded-[1.5rem] text-[11px] font-black uppercase transition-all active:scale-95 ${quizCount > 0 ? 'bg-gray-900 text-white shadow-md hover:bg-black' : 'bg-gray-100 text-gray-400'}`}>Quiz ({quizCount})</button>
+             <div className="space-y-8">
+                 {lastSessionResult.details?.map((item, idx) => (
+                   <div key={idx} className={`p-10 rounded-[3.5rem] bg-white border-2 ${item.selected === item.q.correctIndex ? 'border-[#5c871c]/10' : 'border-rose-100 shadow-xl shadow-rose-50'} space-y-8`}>
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1"><span className="text-[10px] font-black uppercase tracking-widest text-gray-300">Domanda {idx + 1} ({item.q.subject})</span><p className="text-2xl font-black italic text-gray-800">{item.q.question}</p></div>
+                        {item.selected === item.q.correctIndex ? <span className="text-[#5c871c] text-3xl">✓</span> : <span className="text-rose-500 text-3xl">✕</span>}
+                      </div>
+                      <div className="space-y-3">
+                         {item.q.options.map((opt: any, i: number) => (
+                           <div key={i} className={`p-5 rounded-[2rem] flex items-center gap-4 font-bold border ${i === item.q.correctIndex ? 'bg-[#f4f7ed] border-[#5c871c]/30 text-[#5c871c]' : i === item.selected ? 'bg-rose-50 border-rose-200 text-rose-800' : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'}`}>
+                             <span className={`w-10 h-10 rounded-xl flex items-center justify-center ${i === item.q.correctIndex ? themeClasses.bg + ' text-white' : i === item.selected ? 'bg-rose-600 text-white' : 'bg-white text-gray-300'}`}>{String.fromCharCode(65+i)}</span> {opt}
+                           </div>
+                         ))}
+                      </div>
+                      <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10 italic text-sm text-gray-700">
+                         <p className="text-[10px] font-black uppercase tracking-widest text-[#5c871c] mb-2 flex items-center gap-2">🐶 {AI_FEEDBACK_TITLES[idx % 4]}</p>
+                         {item.q.explanation}
+                      </div>
                    </div>
-                </div>
-              );
-            })}
+                 ))}
+             </div>
           </div>
         )}
 
@@ -433,7 +512,7 @@ const App: React.FC = () => {
                if (currentIdx < currentSessionCards.length - 1) setCurrentIdx(p => p + 1);
                else {
                   const acc = (newCorrect / currentSessionCards.length) * 100;
-                  const res: TestResult = { id: Math.random().toString(), date: Date.now(), subject: activeSubject, type: 'Flashcard', totalCards: currentSessionCards.length, correctAnswers: newCorrect, accuracy: acc };
+                  const res: TestResult = { id: Math.random().toString(36).substr(2, 9), date: Date.now(), subject: activeSubject, type: 'Flashcard', totalCards: currentSessionCards.length, correctAnswers: newCorrect, accuracy: acc };
                   setHistory(prev => [res, ...prev]); setLastSessionResult(res); setView('review');
                }
             }} />
@@ -441,7 +520,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Nav mobile */}
+      {/* Nav Mobile */}
       <nav className="md:hidden fixed bottom-6 left-4 right-4 bg-white/95 backdrop-blur-3xl border border-gray-100 rounded-[3rem] flex justify-around items-center p-5 z-40 shadow-2xl">
         {[
           { id: 'dashboard', icon: <ICONS.Dashboard /> },
@@ -454,15 +533,14 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      {/* Modal Esami */}
+      {/* Modale Esami */}
       {showGeneralTestModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-2xl animate-fadeIn px-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-black/80 backdrop-blur-2xl animate-fadeIn">
           <div className="bg-white w-full max-w-lg rounded-[4rem] p-12 text-center space-y-10 shadow-3xl">
-            <h4 className="text-4xl font-black italic tracking-tighter leading-none uppercase text-gray-900">PRONTA ALICE? 🐾</h4>
-            <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] space-y-2 border border-[#5c871c]/10 shadow-inner">
-                <p className="text-gray-700 font-black text-lg">{showGeneralTestModal === '1' ? 'Esame 1° Anno: 30 Q. - 30 min.' : 'Esame Finale: 100 Q. - 60 min.'}</p>
-                <p className="text-xs text-gray-400 italic font-bold tracking-widest uppercase">Protocollo d'Esame Abivet.Pro</p>
-                <p className="text-[10px] text-amber-600 font-black uppercase">Soglia Diploma: 60%</p>
+            <h4 className="text-4xl font-black italic tracking-tighter uppercase text-gray-900">PRONTA ALICE? 🐾</h4>
+            <div className="p-8 bg-[#f4f7ed] rounded-[2.5rem] border border-[#5c871c]/10">
+                <p className="text-gray-700 font-black text-lg">{showGeneralTestModal === '1' ? 'Esame 1° Anno: 50 Q. - 30 min.' : 'Esame Finale: 100 Q. - 60 min.'}</p>
+                <p className="text-[10px] text-amber-600 font-black uppercase">Soglia Diploma: 60 su 100</p>
             </div>
             <div className="grid gap-4">
               <button onClick={() => { startQuizSession('Tutto', showGeneralTestModal); setShowGeneralTestModal(null); }} className={`py-8 ${themeClasses.bg} text-white rounded-[2.5rem] font-black text-2xl shadow-2xl uppercase active:scale-95 transition-all hover:bg-[#6fab1c]`}>INIZIA 🦴</button>
